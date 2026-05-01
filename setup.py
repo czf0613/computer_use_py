@@ -1,6 +1,14 @@
-from setuptools import setup, find_packages
+import platform
+from setuptools import setup
 
-setup(
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
-)
+match platform.system():
+    case "Darwin":
+        pass
+    case "Windows":
+        raise RuntimeError(
+            "scapkit_computer_use does not yet support Windows. Windows support is coming soon."
+        )
+    case unsupported:
+        raise RuntimeError(f"scapkit_computer_use does not support {unsupported}.")
+
+setup()
