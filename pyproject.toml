@@ -1,0 +1,36 @@
+[project]
+name = "scapkit_computer_use"
+version = "0.0.1"
+description = "A Python library for computer use"
+readme = "README.md"
+keywords = ["computer use", "automation"]
+authors = [{ name = "Kevin Chen", email = "1354016594@qq.com" }]
+license = "MIT"
+requires-python = ">=3.11"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: C",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Home-page = "https://github.com/czf0613/computer_use_py"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages.find = { where = ["src"] }
+include-package-data = true
+
+[dependency-groups]
+dev = ["pytest>=9.0.3", "setuptools>=82.0.0"]
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "[%(asctime)s] %(levelname)s %(message)s"
+log_cli_date_format = "%Y-%m-%dT%H:%M:%S%z"
