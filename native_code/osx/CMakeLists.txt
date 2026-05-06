@@ -8,6 +8,7 @@ find_package(Python3 3.14 REQUIRED COMPONENTS Development)
 
 add_library(_scapkit SHARED
     src/ext.c
+    src/display.c
 )
 
 target_include_directories(_scapkit PRIVATE
@@ -17,4 +18,5 @@ target_include_directories(_scapkit PRIVATE
 
 target_link_libraries(_scapkit PRIVATE
     ${Python3_LIBRARIES}
+    "-framework CoreGraphics"
 )
