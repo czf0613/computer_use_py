@@ -9,6 +9,7 @@ find_package(Python3 3.14 REQUIRED COMPONENTS Development)
 add_library(_scapkit SHARED
     src/ext.c
     src/display.c
+    src/control.c
 )
 
 target_include_directories(_scapkit PRIVATE

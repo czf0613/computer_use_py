@@ -3,11 +3,14 @@ include README.md
 include pyproject.toml
 include setup.py
 
-recursive-include src *.py
+recursive-include native_code *.c *.h
 
 exclude CLAUDE.md
 exclude .gitignore
 prune .venv
 prune .github
 prune .claude
+prune .vscode
 prune tests
+prune build
+prune dist

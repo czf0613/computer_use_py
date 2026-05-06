@@ -17,6 +17,24 @@ We use `uv` to manage this project. Always use `uv` commands for project operati
 - `uv add` to add dependencies
 - `uv sync` to sync the environment
 
+## Building
+
+Build the C extension in-place before running or testing:
+
+```bash
+uv run setup.py build_ext --inplace
+```
+
+## Testing
+
+Run all tests:
+
+```bash
+uv run pytest -v -s
+```
+
+Tests are in the `tests/` directory. Async tests use `pytest-asyncio` with strict mode. Some tests (mouse movement, clicking) require macOS Accessibility permissions granted to the terminal or IDE.
+
 ## Project Structure
 
 ```
@@ -24,9 +42,11 @@ native_code/
   osx/          # macOS C extension source
     include/         # Header files
       display.h
+      control.h
     src/
       ext.c          # Module entry point
       display.c      # Display-related functions
+      control.c      # Mouse control functions
     CMakeLists.txt   # IDE hints only, NOT for building
   win/          # Windows C extension source (not yet implemented)
     CMakeLists.txt   # IDE hints only, NOT for building
@@ -35,6 +55,7 @@ src/
     screen_capture_kit/
       __init__.py    # Public API with type annotations
       _scapkit.pyi   # Type stubs for the C extension
+      types.py       # TypedDict definitions (DisplayInfo, Point2D)
 ```
 
 The `CMakeLists.txt` files are **only** for IDE code navigation and hints (e.g. CLion, VS Code IntelliSense). Do **not** use CMake to build this project. Always build via `setup.py` (which is invoked automatically by `uv` / `pip`).

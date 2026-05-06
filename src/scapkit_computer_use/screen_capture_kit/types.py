@@ -18,3 +18,8 @@ class DisplayInfo(TypedDict):
     """Retina scaling factor (e.g. 2.0 for HiDPI). Physical pixels = points * scale_factor."""
     is_main: bool
     """Whether this is the main display."""
+
+
+class Point2D(TypedDict):
+    x: int
+    y: int

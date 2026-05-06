@@ -3,6 +3,7 @@ set -e
 cd "$(dirname "$0")"
 
 rm -rf dist || true
+rm -rf build || true
 rm -rf src/scapkit_computer_use.egg-info || true
 
 uv sync

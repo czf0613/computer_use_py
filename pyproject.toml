@@ -27,7 +27,11 @@ packages.find = { where = ["src"] }
 include-package-data = true
 
 [dependency-groups]
-dev = ["pytest>=9.0.3", "setuptools>=82.0.0"]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "setuptools>=82.0.0",
+]
 
 [tool.pytest.ini_options]
 log_cli = true

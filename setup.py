@@ -8,7 +8,11 @@ match platform.system():
         ext_modules.append(
             Extension(
                 "scapkit_computer_use.screen_capture_kit._scapkit",
-                sources=["native_code/osx/src/ext.c", "native_code/osx/src/display.c"],
+                sources=[
+                    "native_code/osx/src/ext.c",
+                    "native_code/osx/src/display.c",
+                    "native_code/osx/src/control.c",
+                ],
                 include_dirs=["native_code/osx/include"],
                 extra_link_args=["-framework", "CoreGraphics"],
             )
