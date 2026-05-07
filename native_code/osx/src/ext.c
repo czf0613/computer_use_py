@@ -8,6 +8,7 @@ static PyMethodDef ScapkitMethods[] = {
     {"move_mouse", scapkit_move_mouse, METH_VARARGS, NULL},
     {"mouse_click", scapkit_mouse_click, METH_VARARGS, NULL},
     {"check_permission", scapkit_check_permission, METH_VARARGS, NULL},
+    {"keyboard_click", scapkit_keyboard_click, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}};
 
 static struct PyModuleDef scapkit_module = {

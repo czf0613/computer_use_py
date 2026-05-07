@@ -3,11 +3,30 @@ from ._scapkit import (
     get_mouse_position as get_mouse_position_c,
     move_mouse as move_mouse_c,
     mouse_click as mouse_click_action,
+    keyboard_click as _keyboard_click_c,
 )
 from typing import cast, Literal
 from .types import DisplayInfo, Point2D
+from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 from functools import lru_cache
 import asyncio
+from asyncio import subprocess
+
+
+def _resolve_key(key: str) -> int:
+    try:
+        return KEY_CODES[key]
+    except KeyError:
+        raise ValueError(
+            f"unknown key name '{key}'. See screen_capture_kit.keys.KEY_CODES for valid names."
+        )
+
+
+def _resolve_flags(modifiers: list[MODIFIER] | None) -> int:
+    flags = 0
+    for mod in modifiers or []:
+        flags |= MODIFIER_FLAGS[mod]
+    return flags
 
 
 @lru_cache(maxsize=2, typed=True)
@@ -61,3 +80,47 @@ async def mouse_drag(dest: Point2D) -> None:
     await move_mouse(dest)
     await asyncio.sleep(0.05)
     mouse_click_action("left", "up")
+
+
+def keyboard_click_action(
+    key: str,
+    action: Literal["down", "up"],
+    modifiers: list[MODIFIER] | None = None,
+) -> None:
+    _keyboard_click_c(_resolve_key(key), action, _resolve_flags(modifiers))
+
+
+async def keyboard_click(
+    key: str,
+    modifiers: list[MODIFIER] | None = None,
+) -> None:
+    flags = _resolve_flags(modifiers)
+    code = _resolve_key(key)
+    _keyboard_click_c(code, "down", flags)
+    await asyncio.sleep(0.01)
+    _keyboard_click_c(code, "up", flags)
+
+
+async def key_combo(key: str, modifiers: list[MODIFIER]) -> None:
+    await keyboard_click(key, modifiers)
+
+
+async def set_clipboard(text: str) -> None:
+    proc = await subprocess.create_subprocess_exec(
+        "pbcopy",
+        stdin=subprocess.PIPE,
+    )
+    await proc.communicate(input=text.encode("utf-8"))
+
+
+async def get_clipboard() -> str:
+    proc = await subprocess.create_subprocess_exec(
+        "pbpaste",
+        stdout=subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    return stdout.decode("utf-8")
+
+
+async def clipboard_paste() -> None:
+    await keyboard_click("v", ["command"])

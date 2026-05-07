@@ -6,6 +6,12 @@ from .screen_capture_kit import (
     mouse_long_click,
     mouse_click_action,
     mouse_drag,
+    keyboard_click,
+    keyboard_click_action,
+    key_combo,
+    set_clipboard,
+    get_clipboard,
+    clipboard_paste,
     types,
 )
 from typing import Literal
@@ -23,6 +29,12 @@ __all__ = [
     "mouse_long_click",
     "mouse_click_action",
     "mouse_drag",
+    "keyboard_click",
+    "keyboard_click_action",
+    "key_combo",
+    "set_clipboard",
+    "get_clipboard",
+    "clipboard_paste",
 ]
 
 

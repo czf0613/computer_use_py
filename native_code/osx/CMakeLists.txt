@@ -20,4 +20,5 @@ target_include_directories(_scapkit PRIVATE
 target_link_libraries(_scapkit PRIVATE
     ${Python3_LIBRARIES}
     "-framework CoreGraphics"
+    "-framework ApplicationServices"
 )

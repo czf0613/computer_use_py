@@ -78,3 +78,31 @@ PyObject *scapkit_check_permission(PyObject *self, PyObject *args)
     PyErr_Format(PyExc_ValueError, "permission_type must be 'Accessibility' or 'ScreenCapture', got '%s'", permission_type);
     return NULL;
 }
+
+PyObject *scapkit_keyboard_click(PyObject *self, PyObject *args)
+{
+    int key_code;
+    const char *action;
+    unsigned long long flags = 0;
+    if (!PyArg_ParseTuple(args, "is|K", &key_code, &action, &flags))
+        return NULL;
+
+    bool key_down;
+    if (strcmp(action, "down") == 0)
+        key_down = true;
+    else if (strcmp(action, "up") == 0)
+        key_down = false;
+    else
+    {
+        PyErr_Format(PyExc_ValueError, "action must be 'down' or 'up', got '%s'", action);
+        return NULL;
+    }
+
+    CGEventRef event = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)key_code, key_down);
+    if (flags)
+        CGEventSetFlags(event, (CGEventFlags)flags);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+
+    Py_RETURN_NONE;
+}

@@ -1,5 +1,24 @@
 from typing import Literal
 
+def keyboard_click(key_code: int, action: Literal["down", "up"], flags: int = 0) -> None:
+    """Low-level: post a single keyboard event by numeric key code.
+
+    This is the raw C binding. Prefer the Python wrapper
+    `screen_capture_kit.keyboard_click_action(key, action, modifiers)`
+    which accepts key names (e.g. "a", "return") and modifier lists.
+
+    Args:
+        key_code: macOS virtual key code (CGKeyCode).
+        action: "down" or "up".
+        flags: Bitwise OR of CGEventFlags (default 0).
+
+    Raises:
+        ValueError: If action is not "down" or "up".
+
+    Requires Accessibility permissions on macOS.
+    """
+    ...
+
 def list_displays() -> list[dict]:
     """List all active displays with their coordinates, dimensions, and scale factor.
 
