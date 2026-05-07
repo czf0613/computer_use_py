@@ -1,5 +1,7 @@
 #include "control.h"
+#include <string.h>
 #include <CoreGraphics/CoreGraphics.h>
+#include <ApplicationServices/ApplicationServices.h>
 
 PyObject *scapkit_get_mouse_position(PyObject *self, PyObject *args)
 {
@@ -23,18 +25,56 @@ PyObject *scapkit_move_mouse(PyObject *self, PyObject *args)
 
 PyObject *scapkit_mouse_click(PyObject *self, PyObject *args)
 {
-    CGEventRef event = CGEventCreate(NULL);
-    CGPoint loc = CGEventGetLocation(event);
-    CFRelease(event);
+    const char *key, *action;
+    PyArg_ParseTuple(args, "ss", &key, &action);
 
-    CGEventRef mouse_down = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, loc, kCGMouseButtonLeft);
-    CGEventRef mouse_up = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, loc, kCGMouseButtonLeft);
+    CGMouseButton button;
+    if (strcmp(key, "left") == 0)
+        button = kCGMouseButtonLeft;
+    else if (strcmp(key, "right") == 0)
+        button = kCGMouseButtonRight;
+    else
+    {
+        PyErr_Format(PyExc_ValueError, "key must be 'left' or 'right', got '%s'", key);
+        return NULL;
+    }
 
-    CGEventPost(kCGHIDEventTap, mouse_down);
-    CGEventPost(kCGHIDEventTap, mouse_up);
+    CGEventType event_type;
+    if (strcmp(action, "down") == 0)
+        event_type = (button == kCGMouseButtonLeft) ? kCGEventLeftMouseDown : kCGEventRightMouseDown;
+    else if (strcmp(action, "up") == 0)
+        event_type = (button == kCGMouseButtonLeft) ? kCGEventLeftMouseUp : kCGEventRightMouseUp;
+    else
+    {
+        PyErr_Format(PyExc_ValueError, "action must be 'down' or 'up', got '%s'", action);
+        return NULL;
+    }
 
-    CFRelease(mouse_down);
-    CFRelease(mouse_up);
+    CGEventRef pos_event = CGEventCreate(NULL);
+    CGPoint loc = CGEventGetLocation(pos_event);
+    CFRelease(pos_event);
+
+    CGEventRef mouse_event = CGEventCreateMouseEvent(NULL, event_type, loc, button);
+    CGEventPost(kCGHIDEventTap, mouse_event);
+    CFRelease(mouse_event);
 
     Py_RETURN_NONE;
+}
+
+PyObject *scapkit_check_permission(PyObject *self, PyObject *args)
+{
+    const char *permission_type;
+    PyArg_ParseTuple(args, "s", &permission_type);
+
+    if (strcmp(permission_type, "Accessibility") == 0)
+    {
+        return PyBool_FromLong(AXIsProcessTrusted());
+    }
+    else if (strcmp(permission_type, "ScreenCapture") == 0)
+    {
+        return PyBool_FromLong(CGPreflightScreenCaptureAccess());
+    }
+
+    PyErr_Format(PyExc_ValueError, "permission_type must be 'Accessibility' or 'ScreenCapture', got '%s'", permission_type);
+    return NULL;
 }

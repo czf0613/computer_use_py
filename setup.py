@@ -14,7 +14,12 @@ match platform.system():
                     "native_code/osx/src/control.c",
                 ],
                 include_dirs=["native_code/osx/include"],
-                extra_link_args=["-framework", "CoreGraphics"],
+                extra_link_args=[
+                    "-framework",
+                    "CoreGraphics",
+                    "-framework",
+                    "ApplicationServices",
+                ],
             )
         )
     case "Windows":

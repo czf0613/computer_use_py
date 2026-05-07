@@ -1,5 +1,7 @@
 from typing import TypedDict
 
+__all__ = ["DisplayInfo", "Point2D"]
+
 
 class DisplayInfo(TypedDict):
     """Information about a display."""

@@ -1,3 +1,5 @@
+from typing import Literal
+
 def list_displays() -> list[dict]:
     """List all active displays with their coordinates, dimensions, and scale factor.
 
@@ -37,12 +39,32 @@ def move_mouse(x: int, y: int) -> None:
     """
     ...
 
-def mouse_click() -> None:
-    """Perform a left mouse click at the current cursor position.
+def mouse_click(key: Literal["left", "right"], action: Literal["down", "up"]) -> None:
+    """Post a single mouse button event at the current cursor position.
 
-    Synthesizes a mouse-down followed by mouse-up event at the current
-    cursor location using CGEventPost.
+    Args:
+        key: Which mouse button — "left" or "right".
+        action: Whether to press or release — "down" or "up".
+
+    Raises:
+        ValueError: If key is not "left"/"right" or action is not "down"/"up".
 
     Requires Accessibility permissions on macOS.
+    """
+    ...
+
+def check_permission(
+    permission_type: Literal["ScreenCapture", "Accessibility"],
+) -> bool:
+    """Check whether the current process has the specified macOS permission.
+
+    Uses AXIsProcessTrusted() for Accessibility and
+    CGPreflightScreenCaptureAccess() for ScreenCapture.
+
+    Args:
+        permission_type: "ScreenCapture" or "Accessibility".
+
+    Raises:
+        ValueError: If permission_type is not a recognized value.
     """
     ...
