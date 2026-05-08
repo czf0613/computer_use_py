@@ -1,12 +1,16 @@
 from ._scapkit import (
     list_displays as list_displays_c,
-    get_mouse_position as get_mouse_position_c,
+    get_mouse_position,
     move_mouse as move_mouse_c,
     mouse_click as mouse_click_action,
     keyboard_click as _keyboard_click_c,
+    start_capture as start_capture_c,
+    stop_capture as stop_capture_c,
+    current_frame_jpg as current_frame_jpg_c,
+    current_frame_bgra as current_frame_bgra_c,
 )
 from typing import cast, Literal
-from .types import DisplayInfo, Point2D
+from .types import DisplayInfo, Point2D, CaptureHandle, BGRAPack
 from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 from functools import lru_cache
 import asyncio
@@ -31,11 +35,7 @@ def _resolve_flags(modifiers: list[MODIFIER] | None) -> int:
 
 @lru_cache(maxsize=2, typed=True)
 def list_displays() -> list[DisplayInfo]:
-    return cast(list[DisplayInfo], list_displays_c())
-
-
-def get_mouse_position() -> Point2D:
-    return cast(Point2D, get_mouse_position_c())
+    return list_displays_c()
 
 
 async def move_mouse(
@@ -124,3 +124,19 @@ async def get_clipboard() -> str:
 
 async def clipboard_paste() -> None:
     await keyboard_click("v", ["command"])
+
+
+async def start_capture(display_id: int) -> CaptureHandle:
+    return await asyncio.to_thread(start_capture_c, display_id)
+
+
+async def stop_capture(handle: CaptureHandle) -> None:
+    await asyncio.to_thread(stop_capture_c, handle)
+
+
+async def current_frame_jpg(handle: CaptureHandle, quality: int = 80) -> bytes | None:
+    return await asyncio.to_thread(current_frame_jpg_c, handle, quality)
+
+
+async def current_frame_bgra(handle: CaptureHandle) -> BGRAPack | None:
+    return await asyncio.to_thread(current_frame_bgra_c, handle)

@@ -12,8 +12,13 @@ from .screen_capture_kit import (
     set_clipboard,
     get_clipboard,
     clipboard_paste,
+    start_capture,
+    stop_capture,
+    current_frame_jpg,
+    current_frame_bgra,
     types,
 )
+from .screen_capture_kit._scapkit import check_permission as check_permission_c
 from typing import Literal
 import platform
 from asyncio import subprocess
@@ -35,6 +40,10 @@ __all__ = [
     "set_clipboard",
     "get_clipboard",
     "clipboard_paste",
+    "start_capture",
+    "stop_capture",
+    "current_frame_jpg",
+    "current_frame_bgra",
 ]
 
 
@@ -43,8 +52,6 @@ def check_permission(
 ) -> bool:
     if platform.system() != "Darwin":
         return True
-
-    from .screen_capture_kit._scapkit import check_permission as check_permission_c
 
     return check_permission_c(permission_type)
 

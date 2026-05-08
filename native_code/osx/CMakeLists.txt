@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(scapkit_computer_use_osx C)
+project(scapkit_computer_use_osx C OBJC)
 
 # This CMakeLists.txt is only for IDE code hints (e.g. CLion, VS Code).
 # Do NOT use CMake to build this project. Use setup.py instead.
@@ -10,7 +10,10 @@ add_library(_scapkit SHARED
     src/ext.c
     src/display.c
     src/control.c
+    src/capture.m
 )
+
+target_compile_options(_scapkit PRIVATE -fobjc-arc)
 
 target_include_directories(_scapkit PRIVATE
     ${Python3_INCLUDE_DIRS}
@@ -21,4 +24,9 @@ target_link_libraries(_scapkit PRIVATE
     ${Python3_LIBRARIES}
     "-framework CoreGraphics"
     "-framework ApplicationServices"
+    "-framework ScreenCaptureKit"
+    "-framework CoreMedia"
+    "-framework CoreVideo"
+    "-framework CoreImage"
+    "-framework ImageIO"
 )

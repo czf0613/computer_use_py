@@ -1,6 +1,9 @@
 from typing import Literal
+from .types import CaptureHandle, BGRAPack, Point2D, DisplayInfo
 
-def keyboard_click(key_code: int, action: Literal["down", "up"], flags: int = 0) -> None:
+def keyboard_click(
+    key_code: int, action: Literal["down", "up"], flags: int = 0
+) -> None:
     """Low-level: post a single keyboard event by numeric key code.
 
     This is the raw C binding. Prefer the Python wrapper
@@ -19,7 +22,7 @@ def keyboard_click(key_code: int, action: Literal["down", "up"], flags: int = 0)
     """
     ...
 
-def list_displays() -> list[dict]:
+def list_displays() -> list[DisplayInfo]:
     """List all active displays with their coordinates, dimensions, and scale factor.
 
     Returns a list of display info dicts with keys: id, x, y, width, height,
@@ -35,7 +38,7 @@ def list_displays() -> list[dict]:
     """
     ...
 
-def get_mouse_position() -> dict:
+def get_mouse_position() -> Point2D:
     """Get the current mouse cursor position.
 
     Returns a dict with keys 'x' and 'y' representing the cursor location
@@ -85,5 +88,59 @@ def check_permission(
 
     Raises:
         ValueError: If permission_type is not a recognized value.
+    """
+    ...
+
+def start_capture(display_id: int) -> CaptureHandle:
+    """Start capturing a display using ScreenCaptureKit.
+
+    Creates an SCStream targeting the specified display and begins receiving
+    frames at 30 FPS in BGRA format. Returns an opaque handle used by
+    stop_capture, current_frame_jpg, and current_frame_bgra.
+
+    Args:
+        display_id: The CGDirectDisplayID (from list_displays()["id"]).
+
+    Raises:
+        OSError: If SCShareableContent lookup or stream start fails.
+        ValueError: If the display_id is not found.
+
+    Requires Screen Recording permission on macOS.
+    """
+    ...
+
+def stop_capture(handle: CaptureHandle) -> None:
+    """Stop an active screen capture and release resources.
+
+    Args:
+        handle: The handle returned by start_capture.
+
+    Raises:
+        OSError: If stopping the stream fails.
+    """
+    ...
+
+def current_frame_jpg(handle: CaptureHandle, quality: int = 80) -> bytes | None:
+    """Get the latest captured frame as JPEG-encoded bytes.
+
+    Returns None if no frame has been captured yet.
+
+    Args:
+        handle: The handle returned by start_capture.
+        quality: JPEG quality 0-100 (default 80).
+
+    Raises:
+        OSError: If JPEG encoding fails.
+    """
+    ...
+
+def current_frame_bgra(handle: CaptureHandle) -> BGRAPack | None:
+    """Get the latest captured frame as raw BGRA pixel data.
+
+    Returns None if no frame has been captured yet. Otherwise returns a dict:
+        - "data": bytes — raw BGRA pixel buffer
+        - "width": int — frame width in pixels
+        - "height": int — frame height in pixels
+        - "bytes_per_row": int — stride (may include padding)
     """
     ...
