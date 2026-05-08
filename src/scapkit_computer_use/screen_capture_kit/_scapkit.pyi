@@ -75,6 +75,28 @@ def mouse_click(key: Literal["left", "right"], action: Literal["down", "up"]) ->
     """
     ...
 
+def mouse_scroll(
+    direction: Literal["up", "down", "left", "right"], distance: int
+) -> None:
+    """Scroll the mouse wheel in the given direction.
+
+    The direction describes which way the **content** moves, matching macOS
+    natural scrolling. On Windows the implementation will invert internally
+    so callers always use the same convention.
+
+    Uses CGEventCreateScrollWheelEvent with kCGScrollEventUnitLine.
+
+    Args:
+        direction: "up", "down", "left", or "right".
+        distance: Number of lines to scroll (positive).
+
+    Raises:
+        ValueError: If direction is not one of the four valid values.
+
+    Requires Accessibility permissions on macOS.
+    """
+    ...
+
 def check_permission(
     permission_type: Literal["ScreenCapture", "Accessibility"],
 ) -> bool:

@@ -5,8 +5,10 @@ from scapkit_computer_use.screen_capture_kit import (
     get_mouse_position,
     list_displays,
     mouse_click,
+    mouse_scroll,
     move_mouse,
 )
+import asyncio
 
 
 def test_check_permissions():
@@ -64,3 +66,14 @@ async def test_right_click_at_screen_center():
 
     pos = get_mouse_position()
     print(f"Right-clicked at: ({pos['x']}, {pos['y']})")
+
+
+@pytest.mark.asyncio
+async def test_mouse_scroll():
+    await mouse_scroll("down", 3)
+    await asyncio.sleep(1)
+    await mouse_scroll("up", 3)
+    await asyncio.sleep(1)
+    await mouse_scroll("left", 2)
+    await asyncio.sleep(1)
+    await mouse_scroll("right", 2)

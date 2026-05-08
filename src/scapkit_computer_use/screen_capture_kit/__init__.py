@@ -3,13 +3,14 @@ from ._scapkit import (
     get_mouse_position,
     move_mouse as move_mouse_c,
     mouse_click as mouse_click_action,
+    mouse_scroll as mouse_scroll_c,
     keyboard_click as _keyboard_click_c,
     start_capture as start_capture_c,
     stop_capture as stop_capture_c,
     current_frame_jpg as current_frame_jpg_c,
     current_frame_bgra as current_frame_bgra_c,
 )
-from typing import cast, Literal
+from typing import Literal
 from .types import DisplayInfo, Point2D, CaptureHandle, BGRAPack
 from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 from functools import lru_cache
@@ -80,6 +81,14 @@ async def mouse_drag(dest: Point2D) -> None:
     await move_mouse(dest)
     await asyncio.sleep(0.05)
     mouse_click_action("left", "up")
+
+
+async def mouse_scroll(
+    direction: Literal["up", "down", "left", "right"], distance: int = 3
+) -> None:
+    for _ in range(distance):
+        mouse_scroll_c(direction, 1)
+        await asyncio.sleep(0.01)
 
 
 def keyboard_click_action(

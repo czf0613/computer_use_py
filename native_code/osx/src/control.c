@@ -69,6 +69,42 @@ PyObject *scapkit_mouse_click(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+PyObject *scapkit_mouse_scroll(PyObject *self, PyObject *args)
+{
+    const char *direction;
+    int distance;
+    PyArg_ParseTuple(args, "si", &direction, &distance);
+
+    int32_t delta_y = 0, delta_x = 0;
+    if (strcmp(direction, "up") == 0)
+    {
+        delta_y = distance;
+    }
+    else if (strcmp(direction, "down") == 0)
+    {
+        delta_y = -distance;
+    }
+    else if (strcmp(direction, "left") == 0)
+    {
+        delta_x = distance;
+    }
+    else if (strcmp(direction, "right") == 0)
+    {
+        delta_x = -distance;
+    }
+    else
+    {
+        PyErr_Format(PyExc_ValueError, "direction must be 'up', 'down', 'left', or 'right', got '%s'", direction);
+        return NULL;
+    }
+
+    CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 2, delta_y, delta_x);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+
+    Py_RETURN_NONE;
+}
+
 PyObject *scapkit_check_permission(PyObject *self, PyObject *args)
 {
     const char *permission_type;
