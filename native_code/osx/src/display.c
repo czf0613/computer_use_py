@@ -22,7 +22,7 @@ PyObject *scapkit_list_displays(PyObject *self, PyObject *args)
         CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displays[i]);
         double scale = (double)CGDisplayModeGetPixelWidth(mode) / bounds.size.width;
         CGDisplayModeRelease(mode);
-        PyList_SET_ITEM(result, i, Py_BuildValue("{s:k, s:d, s:d, s:d, s:d, s:d, s:O}", "id", (unsigned long)displays[i], "x", bounds.origin.x, "y", bounds.origin.y, "width", bounds.size.width, "height", bounds.size.height, "scale_factor", scale, "is_main", displays[i] == main_id ? Py_True : Py_False));
+        PyList_SET_ITEM(result, i, Py_BuildValue("{s:k, s:i, s:i, s:i, s:i, s:d, s:O}", "id", (unsigned long)displays[i], "x", (int)bounds.origin.x, "y", (int)bounds.origin.y, "width", (int)bounds.size.width, "height", (int)bounds.size.height, "scale_factor", scale, "is_main", displays[i] == main_id ? Py_True : Py_False));
     }
 
     return result;

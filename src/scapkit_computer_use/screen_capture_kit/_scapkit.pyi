@@ -47,17 +47,36 @@ def get_mouse_position() -> Point2D:
     ...
 
 def move_mouse(x: int, y: int) -> None:
-    """Move the mouse cursor to the specified position.
+    """Move the mouse cursor to an absolute position.
+
+    Uses CGWarpMouseCursorPosition, which teleports the cursor without
+    generating mouse-move delta events. This means applications that rely
+    on relative mouse deltas (e.g. FPS games with pointer lock) will NOT
+    respond to this call. Use move_mouse_relative for those scenarios.
 
     Coordinates are in macOS global display point coordinates
     (same coordinate space as get_mouse_position and list_displays).
 
-    Requires Accessibility permissions on macOS. The system will prompt
-    the user to grant access the first time this is called.
-
     Args:
         x: X coordinate in points.
         y: Y coordinate in points.
+
+    Requires Accessibility permissions on macOS.
+    """
+    ...
+
+def move_mouse_relative(dx: int, dy: int) -> None:
+    """Move the mouse cursor by a relative offset, generating delta events.
+
+    Posts a kCGEventMouseMoved event with explicit deltaX/deltaY fields.
+    This works with applications that read raw mouse deltas (e.g. games
+    with pointer lock like FPS).
+
+    Args:
+        dx: Horizontal offset in points (positive = right).
+        dy: Vertical offset in points (positive = down).
+
+    Requires Accessibility permissions on macOS.
     """
     ...
 

@@ -7,6 +7,7 @@ static PyMethodDef ScapkitMethods[] = {
     {"list_displays", scapkit_list_displays, METH_NOARGS, NULL},
     {"get_mouse_position", scapkit_get_mouse_position, METH_NOARGS, NULL},
     {"move_mouse", scapkit_move_mouse, METH_VARARGS, NULL},
+    {"move_mouse_relative", scapkit_move_mouse_relative, METH_VARARGS, NULL},
     {"mouse_click", scapkit_mouse_click, METH_VARARGS, NULL},
     {"mouse_scroll", scapkit_mouse_scroll, METH_VARARGS, NULL},
     {"check_permission", scapkit_check_permission, METH_VARARGS, NULL},

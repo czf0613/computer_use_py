@@ -33,7 +33,7 @@ async def test_keyboard_click_no_crash():
 
 @pytest.mark.asyncio
 async def test_keyboard_click_with_modifier():
-    await keyboard_click("a", ["command"])
+    await keyboard_click("a", {"command"})
 
 
 def test_keyboard_click_action_down_up():

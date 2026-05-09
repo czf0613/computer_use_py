@@ -1,7 +1,6 @@
 from .screen_capture_kit import (
-    list_displays,
-    get_mouse_position,
     move_mouse,
+    move_mouse_relative,
     mouse_click,
     mouse_long_click,
     mouse_click_action,
@@ -19,7 +18,11 @@ from .screen_capture_kit import (
     current_frame_bgra,
     types,
 )
-from .screen_capture_kit._scapkit import check_permission as check_permission_c
+from .screen_capture_kit._scapkit import (
+    check_permission as check_permission_c,
+    list_displays,
+    get_mouse_position,
+)
 from typing import Literal
 import platform
 from asyncio import subprocess
@@ -31,6 +34,7 @@ __all__ = [
     "list_displays",
     "get_mouse_position",
     "move_mouse",
+    "move_mouse_relative",
     "mouse_click",
     "mouse_long_click",
     "mouse_click_action",
@@ -52,6 +56,14 @@ __all__ = [
 def check_permission(
     permission_type: Literal["ScreenCapture", "Accessibility"],
 ) -> bool:
+    """Check whether the current process has the specified macOS permission.
+
+    Returns True on non-macOS platforms. On macOS, checks Accessibility
+    (AXIsProcessTrusted) or ScreenCapture (CGPreflightScreenCaptureAccess).
+
+    Args:
+        permission_type: "ScreenCapture" or "Accessibility".
+    """
     if platform.system() != "Darwin":
         return True
 
@@ -61,6 +73,13 @@ def check_permission(
 async def open_permission_settings(
     permission_type: Literal["ScreenCapture", "Accessibility"],
 ) -> None:
+    """Open the macOS System Preferences pane for the specified permission.
+
+    No-op on non-macOS platforms.
+
+    Args:
+        permission_type: "ScreenCapture" or "Accessibility".
+    """
     if platform.system() != "Darwin":
         return
 

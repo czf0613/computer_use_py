@@ -45,17 +45,24 @@ displays = list_displays()
 
 ```python
 from scapkit_computer_use import (
-    get_mouse_position, move_mouse, mouse_click, mouse_scroll, mouse_drag
+    get_mouse_position, move_mouse, move_mouse_relative,
+    mouse_click, mouse_scroll, mouse_drag
 )
 
 # 获取当前位置
 pos = get_mouse_position()  # {"x": 100, "y": 200}
 
-# 平滑移动
+# 平滑移动（绝对坐标）
 await move_mouse({"x": 500, "y": 300})
 
 # 瞬间移动
 await move_mouse({"x": 500, "y": 300}, smooth=False)
+
+# 相对移动（生成 delta 事件，兼容游戏等指针锁定场景）
+await move_mouse_relative({"dx": 100, "dy": 50})
+
+# 瞬间相对移动
+await move_mouse_relative({"dx": 100, "dy": 50}, smooth=False)
 
 # 点击
 await mouse_click("left")
@@ -69,6 +76,8 @@ await mouse_scroll("up", 3)
 await mouse_drag({"x": 800, "y": 600})
 ```
 
+> **注意：** `move_mouse` 使用 `CGWarpMouseCursorPosition`，不会生成鼠标移动的 delta 事件，因此不适用于依赖原始鼠标 delta 的应用（如游戏中的指针锁定）。这类场景请使用 `move_mouse_relative`，它通过 `CGEventCreateMouseEvent` 发送包含 `deltaX/deltaY` 的 `kCGEventMouseMoved` 事件。
+
 ### 键盘输入
 
 使用跨平台的按键名称，无需关心底层键码：
@@ -81,9 +90,9 @@ await keyboard_click("a")
 await keyboard_click("return")
 
 # 组合键
-await key_combo("c", ["command"])    # Cmd+C 复制
-await key_combo("v", ["command"])    # Cmd+V 粘贴
-await key_combo("z", ["command", "shift"])  # Cmd+Shift+Z 重做
+await key_combo("c", {"command"})    # Cmd+C 复制
+await key_combo("v", {"command"})    # Cmd+V 粘贴
+await key_combo("z", {"command", "shift"})  # Cmd+Shift+Z 重做
 ```
 
 支持的按键名称包括：`a`-`z`、`0`-`9`、`return`、`tab`、`space`、`delete`、`escape`、`f1`-`f20`、`up`/`down`/`left`/`right` 等。完整列表见 `screen_capture_kit/keys.py`。

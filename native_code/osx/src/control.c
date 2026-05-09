@@ -23,6 +23,25 @@ PyObject *scapkit_move_mouse(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+PyObject *scapkit_move_mouse_relative(PyObject *self, PyObject *args)
+{
+    int dx, dy;
+    PyArg_ParseTuple(args, "ii", &dx, &dy);
+
+    CGEventRef pos_event = CGEventCreate(NULL);
+    CGPoint loc = CGEventGetLocation(pos_event);
+    CFRelease(pos_event);
+
+    CGPoint new_loc = CGPointMake(loc.x + dx, loc.y + dy);
+    CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, new_loc, 0);
+    CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
+    CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, dy);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+
+    Py_RETURN_NONE;
+}
+
 PyObject *scapkit_mouse_click(PyObject *self, PyObject *args)
 {
     const char *key, *action;

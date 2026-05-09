@@ -1,12 +1,13 @@
 from pprint import pprint
 import pytest
-from scapkit_computer_use import check_permission
-from scapkit_computer_use.screen_capture_kit import (
+from scapkit_computer_use import (
+    check_permission,
     get_mouse_position,
     list_displays,
     mouse_click,
     mouse_scroll,
     move_mouse,
+    move_mouse_relative,
 )
 import asyncio
 
@@ -77,3 +78,46 @@ async def test_mouse_scroll():
     await mouse_scroll("left", 2)
     await asyncio.sleep(1)
     await mouse_scroll("right", 2)
+
+
+@pytest.mark.asyncio
+async def test_move_mouse_relative():
+    displays = list_displays()
+    target = displays[0]
+    center_x = int(target["x"] + target["width"] / 2)
+    center_y = int(target["y"] + target["height"] / 2)
+
+    await move_mouse({"x": center_x, "y": center_y}, smooth=False)
+    await asyncio.sleep(0.1)
+
+    pos_before = get_mouse_position()
+    print(f"\nBefore: ({pos_before['x']}, {pos_before['y']})")
+
+    await move_mouse_relative({"dx": 100, "dy": 50})
+    await asyncio.sleep(0.1)
+
+    pos_after = get_mouse_position()
+    print(f"After:  ({pos_after['x']}, {pos_after['y']})")
+    print(f"Delta:  dx={pos_after['x'] - pos_before['x']}, dy={pos_after['y'] - pos_before['y']}")
+    assert abs(pos_after["x"] - pos_before["x"] - 100) <= 2
+    assert abs(pos_after["y"] - pos_before["y"] - 50) <= 2
+
+
+@pytest.mark.asyncio
+async def test_move_mouse_relative_instant():
+    displays = list_displays()
+    target = displays[0]
+    center_x = int(target["x"] + target["width"] / 2)
+    center_y = int(target["y"] + target["height"] / 2)
+
+    await move_mouse({"x": center_x, "y": center_y}, smooth=False)
+    await asyncio.sleep(0.1)
+
+    pos_before = get_mouse_position()
+
+    await move_mouse_relative({"dx": -60, "dy": 30}, smooth=False)
+    await asyncio.sleep(0.1)
+
+    pos_after = get_mouse_position()
+    assert abs(pos_after["x"] - pos_before["x"] - (-60)) <= 2
+    assert abs(pos_after["y"] - pos_before["y"] - 30) <= 2

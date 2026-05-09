@@ -1,6 +1,6 @@
 [project]
 name = "scapkit_computer_use"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Python library for computer use"
 readme = "README.md"
 keywords = ["computer use", "automation"]
