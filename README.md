@@ -6,11 +6,16 @@
 
 ## 安装
 
-需要 Python >= 3.11，使用 [uv](https://github.com/astral-sh/uv) 管理项目：
+需要 Python >= 3.11，通过 PyPI 安装：
 
 ```bash
-uv sync
-uv run setup.py build_ext --inplace
+pip install scapkit_computer_use
+```
+
+或使用 [uv](https://github.com/astral-sh/uv)：
+
+```bash
+uv add scapkit_computer_use
 ```
 
 ## 权限
@@ -37,7 +42,7 @@ if not check_permission("Accessibility"):
 from scapkit_computer_use import list_displays
 
 displays = list_displays()
-# [{"id": 2, "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0, "scale_factor": 2.0, "is_main": True}]
+# [{"id": 2, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale_factor": 2.0, "is_main": True}]
 # width/height 为 point 单位，实际物理像素为 1920×2 = 3840, 1080×2 = 2160
 ```
 
@@ -95,7 +100,7 @@ await key_combo("v", {"command"})    # Cmd+V 粘贴
 await key_combo("z", {"command", "shift"})  # Cmd+Shift+Z 重做
 ```
 
-支持的按键名称包括：`a`-`z`、`0`-`9`、`return`、`tab`、`space`、`delete`、`escape`、`f1`-`f20`、`up`/`down`/`left`/`right` 等。完整列表见 `screen_capture_kit/keys.py`。
+支持的按键名称包括：`a`-`z`、`0`-`9`、`return`、`tab`、`space`、`delete`、`escape`、`f1`-`f20`、`up`/`down`/`left`/`right` 等。完整列表见源码 `screen_capture_kit/keys.py`。
 
 ### 剪贴板
 

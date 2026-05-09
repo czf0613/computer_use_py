@@ -1,12 +1,16 @@
 from typing import Literal
 
-MODIFIER = Literal["command", "shift", "option", "control"]
+MODIFIER = Literal["command", "shift", "option", "control", "fn", "win", "alt"]
 
 MODIFIER_FLAGS: dict[MODIFIER, int] = {
     "command": 0x100000,
     "shift": 0x020000,
     "option": 0x080000,
     "control": 0x040000,
+    "fn": 0x800000,
+    # Cross-platform aliases
+    "win": 0x100000,  # command
+    "alt": 0x080000,  # option
 }
 
 KEY_CODES: dict[str, int] = {
@@ -68,6 +72,7 @@ KEY_CODES: dict[str, int] = {
     "capslock": 57,
     "option": 58,
     "control": 59,
+    "fn": 63,
     "right_shift": 60,
     "right_option": 61,
     "right_control": 62,

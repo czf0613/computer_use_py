@@ -2,7 +2,6 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
-#import <CoreImage/CoreImage.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <dispatch/dispatch.h>
@@ -287,11 +286,20 @@ PyObject *scapkit_current_frame_jpg(PyObject *self, PyObject *args)
         Py_RETURN_NONE;
     }
 
-    CIImage *ciImage = [CIImage imageWithCVPixelBuffer:frame];
-    CVPixelBufferRelease(frame);
+    CVPixelBufferLockBaseAddress(frame, kCVPixelBufferLock_ReadOnly);
 
-    CIContext *ctx = [CIContext context];
+    size_t width = CVPixelBufferGetWidth(frame);
+    size_t height = CVPixelBufferGetHeight(frame);
+    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(frame);
+    void *baseAddress = CVPixelBufferGetBaseAddress(frame);
+
     CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGDataProviderRef provider = CGDataProviderCreateWithData(
+        NULL, baseAddress, bytesPerRow * height, NULL);
+    CGImageRef cgImage = CGImageCreate(
+        width, height, 8, 32, bytesPerRow, colorSpace,
+        kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst,
+        provider, NULL, false, kCGRenderingIntentDefault);
 
     NSMutableData *jpegData = [NSMutableData data];
     CGImageDestinationRef dest = CGImageDestinationCreateWithData(
@@ -299,19 +307,25 @@ PyObject *scapkit_current_frame_jpg(PyObject *self, PyObject *args)
 
     if (!dest)
     {
+        CGImageRelease(cgImage);
+        CGDataProviderRelease(provider);
         CGColorSpaceRelease(colorSpace);
+        CVPixelBufferUnlockBaseAddress(frame, kCVPixelBufferLock_ReadOnly);
+        CVPixelBufferRelease(frame);
         PyErr_SetString(PyExc_OSError, "failed to create JPEG image destination");
         return NULL;
     }
 
-    CGImageRef cgImage = [ctx createCGImage:ciImage fromRect:ciImage.extent];
     NSDictionary *props = @{(__bridge NSString *)kCGImageDestinationLossyCompressionQuality: @(quality / 100.0)};
     CGImageDestinationAddImage(dest, cgImage, (__bridge CFDictionaryRef)props);
     CGImageDestinationFinalize(dest);
 
     CGImageRelease(cgImage);
+    CGDataProviderRelease(provider);
     CFRelease(dest);
     CGColorSpaceRelease(colorSpace);
+    CVPixelBufferUnlockBaseAddress(frame, kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferRelease(frame);
 
     PyObject *result = PyBytes_FromStringAndSize((const char *)jpegData.bytes, (Py_ssize_t)jpegData.length);
     return result;

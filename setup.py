@@ -28,8 +28,6 @@ match platform.system():
                     "-framework",
                     "CoreVideo",
                     "-framework",
-                    "CoreImage",
-                    "-framework",
                     "ImageIO",
                 ],
             )
