@@ -267,11 +267,37 @@ async def test_invalid_output_encoding_is_explicitly_configurable():
     assert result.stdout == "\ufffd"
 
 
-async def wait_for_file(path):
+async def wait_for_pid(path):
     deadline = time.monotonic() + 5
-    while not path.exists():
+    while True:
+        try:
+            text = path.read_text()
+        except FileNotFoundError:
+            text = ""
+        # Opening/truncating a file is visible before its writer publishes data.
+        # A complete line prevents both empty reads and partial PID identities.
+        if text.endswith("\n") and text.strip().isdigit() and int(text) > 0:
+            return int(text)
         assert time.monotonic() < deadline, "child did not start"
         await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_pid_notification_waits_for_the_complete_line(tmp_path):
+    pidfile = tmp_path / "notification.pid"
+    pidfile.touch()
+    task = asyncio.create_task(wait_for_pid(pidfile))
+    try:
+        await asyncio.sleep(0.02)
+        assert not task.done(), "file creation is not PID publication"
+        pidfile.write_text("123")
+        await asyncio.sleep(0.02)
+        assert not task.done(), "an incomplete PID must not identify a process"
+        pidfile.write_text("123\n")
+        assert await asyncio.wait_for(task, 1) == 123
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -279,12 +305,11 @@ async def test_non_stream_cancellation_reaps_the_child(tmp_path):
     pidfile = tmp_path / "child.pid"
     task = asyncio.create_task(
         run_python(
-            "import os,pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)",
+            "import os,pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())+'\\n'); time.sleep(60)",
             str(pidfile),
         )
     )
-    await wait_for_file(pidfile)
-    pid = int(pidfile.read_text())
+    pid = await wait_for_pid(pidfile)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, 3)
@@ -309,7 +334,7 @@ async def test_cancellation_finishes_when_descendant_keeps_pipes_open(
     code = (
         "import subprocess,sys,time,pathlib; "
         "p=subprocess.Popen([sys.executable,'-I','-S','-c','import time; time.sleep(60)']); "
-        "pathlib.Path(sys.argv[1]).write_text(str(p.pid)); time.sleep(60)"
+        "pathlib.Path(sys.argv[1]).write_text(str(p.pid)+'\\n'); time.sleep(60)"
     )
     if streaming:
         process = await run_python(code, str(pidfile), use_stream=True)
@@ -321,8 +346,7 @@ async def test_cancellation_finishes_when_descendant_keeps_pipes_open(
             task = asyncio.create_task(process.communicate("x" * 2000000))
     else:
         task = asyncio.create_task(run_python(code, str(pidfile)))
-    await wait_for_file(pidfile)
-    descendant = int(pidfile.read_text())
+    descendant = await wait_for_pid(pidfile)
     task.cancel()
     try:
         done, _ = await asyncio.wait({task}, timeout=1)
@@ -339,8 +363,7 @@ async def test_cancelling_shell_initialization_reaps_shell(shell_home):
     pidfile = shell_home / "shell.pid"
     (shell_home / ".zshrc").write_text('echo $$ > "$HOME/shell.pid"\n/bin/sleep 60\n')
     task = asyncio.create_task(run_python("print('must not start')"))
-    await wait_for_file(pidfile)
-    pid = int(pidfile.read_text())
+    pid = await wait_for_pid(pidfile)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, 3)
