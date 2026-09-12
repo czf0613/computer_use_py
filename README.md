@@ -29,6 +29,26 @@ pip install --no-binary=scapkit_computer_use scapkit_computer_use
 uv add scapkit_computer_use
 ```
 
+## 可选 MCP Server
+
+源码新增了基于 FastAPI 的 MCP server，供 agent 通过标准 MCP 工具控制设备。
+普通安装不引入 MCP/FastAPI 依赖。当前 PyPI `0.0.3` 尚未包含此功能，先从源码运行：
+
+```sh
+uv sync --extra mcp
+uv run --extra mcp scapkit-mcp
+```
+
+客户端连接 `http://127.0.0.1:8000/mcp`；也支持通过
+`python -m scapkit_computer_use_mcp --transport stdio` 由客户端直接启动。
+服务自动提供 agent instructions、操作指南 resource 和 prompt，说明权限、工具使用顺序、
+Retina 坐标换算及操作后的验证流程。
+可选 MCP 模块支持常规 Python 3.10+ 和 3.14t；上游 CFFI 不支持 3.13t，
+这不影响基础库的 3.13t 支持。
+
+详见 [MCP 安装、客户端配置与工具说明](docs/mcp-server.md) 和
+[agent 操作指南](src/scapkit_computer_use_mcp/agent_guide.md)。
+
 ## 权限
 
 macOS 下需要授予以下系统权限：

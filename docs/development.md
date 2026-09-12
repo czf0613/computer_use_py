@@ -40,6 +40,14 @@ uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tes
 这些测试使用临时 zsh profile 和本地子进程，覆盖文本流、环境隔离、编码、取消回收，
 以及 Windows API 的模拟检查。接口和平台限制见 [进程执行](subprocess.md)。
 
+修饰键生命周期回归使用 `uv run --no-sync pytest tests/test_modifier_lifecycle.py`。
+它编译实际 C 事件构造代码并截留 post/warp，不操作桌面；真实系统状态和窗口焦点
+的验收需要另行准备测试环境。参见 [修饰键生命周期](modifier-lifecycle.md)。
+
+可选 MCP 模块通过 `uv run --extra mcp pytest tests/test_mcp_server.py` 验证。
+使用 fake 设备测试协议与操作逻辑，不访问真实桌面。安装和 agent 配置见
+[MCP server](mcp-server.md)。
+
 真实桌面测试分布在 `test_capture.py`、`test_mouse.py`、`test_keyboard.py`、
 `test_list_displays.py`，需要单独授权；截图测试会在 `data/` 保存实际屏幕图像。
 不能把这些测试加入无人值守 CI，也不能用全套测试代替上述安全测试集。

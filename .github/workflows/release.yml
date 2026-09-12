@@ -163,6 +163,8 @@ jobs:
                   assert any(name.endswith('.so') for name in names), wheel.name
                   assert any(name.endswith('/_scapkit.pyi') for name in names), wheel.name
                   assert any(name.endswith('/py.typed') for name in names), wheel.name
+                  assert 'scapkit_computer_use_mcp/server.py' in names, wheel.name
+                  assert 'scapkit_computer_use_mcp/agent_guide.md' in names, wheel.name
                   assert not any(name.startswith('tests/') for name in names), wheel.name
                   metadata_path, = [name for name in names if name.endswith('.dist-info/METADATA')]
                   metadata = BytesParser().parsebytes(archive.read(metadata_path))

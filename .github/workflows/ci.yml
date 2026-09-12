@@ -109,4 +109,25 @@ jobs:
             tests/test_native_arguments.py \
             tests/test_native_validation.py \
             tests/test_async_safety.py \
+            tests/test_modifier_lifecycle.py \
             tests/test_process.py
+      - name: Install optional MCP dependencies and test protocol without desktop access
+        # MCP -> PyJWT[crypto] -> cryptography -> CFFI rejects CPython 3.13t.
+        # Keep all base-library checks above; the optional server supports 3.14t.
+        if: matrix.python != '3.13t'
+        shell: bash
+        run: |
+          python -m pip install --no-build-isolation '.[mcp]'
+          python - <<'PY'
+          import sys
+          import sysconfig
+          import pytest
+
+          free_threaded = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
+          if free_threaded:
+              assert not sys._is_gil_enabled()
+          result = pytest.main(['-q', 'tests/test_mcp_server.py'])
+          if free_threaded:
+              assert not sys._is_gil_enabled(), 'Importing/running MCP enabled the GIL'
+          raise SystemExit(result)
+          PY

@@ -12,6 +12,9 @@ from ._scapkit import (
     mouse_click as mouse_click_action,
     mouse_scroll as mouse_scroll_c,
     keyboard_click as keyboard_click_c,
+    _drag_mouse as drag_mouse_c,
+    _keyboard_begin as keyboard_begin_c,
+    _keyboard_end as keyboard_end_c,
     start_capture as start_capture_c,
     stop_capture as stop_capture_c,
     current_frame_jpg as current_frame_jpg_c,
@@ -31,7 +34,7 @@ def _resolve_key(key: str) -> int:
     except KeyError:
         raise ValueError(
             f"unknown key name '{key}'. See screen_capture_kit.keys.KEY_CODES for valid names."
-        )
+        ) from None
 
 
 def _resolve_flags(modifiers: set[MODIFIER] | None) -> int:
@@ -61,6 +64,11 @@ async def move_mouse(
         move_mouse_c(dest["x"], dest["y"])
         return
 
+    await _smooth_move(dest, duration_s, move_mouse_c)
+
+
+async def _smooth_move(dest: Point2D, duration_s: float, move) -> None:
+
     start = get_mouse_position()
     dx = dest["x"] - start["x"]
     dy = dest["y"] - start["y"]
@@ -74,7 +82,7 @@ async def move_mouse(
         ease = t * t * (3 - 2 * t)
         x = int(start["x"] + dx * ease)
         y = int(start["y"] + dy * ease)
-        move_mouse_c(x, y)
+        move(x, y)
         await asyncio.sleep(interval)
 
 
@@ -160,7 +168,7 @@ async def mouse_drag(dest: Point2D) -> None:
     mouse_click_action("left", "down")
     try:
         await asyncio.sleep(0.05)
-        await move_mouse(dest)
+        await _smooth_move(dest, 0.5, drag_mouse_c)
         await asyncio.sleep(0.05)
     finally:
         mouse_click_action("left", "up")
@@ -194,6 +202,11 @@ def keyboard_click_action(
 ) -> None:
     """Post a single keyboard key-down or key-up event.
 
+    Raw event semantics: modifiers are the exact flags on this event. The caller
+    owns the entire down/up and modifier lifecycle, including failure cleanup.
+    For example, an explicit Command hold uses ("command", "down", {"command"})
+    and releases with ("command", "up"). High-level shortcuts do not release it.
+
     Args:
         key: Named key (e.g. "a", "return"). See keys.KEY_CODES for valid names.
         action: "down" or "up".
@@ -202,14 +215,48 @@ def keyboard_click_action(
     keyboard_click_c(_resolve_key(key), action, _resolve_flags(modifiers))
 
 
+async def _release_keyboard_stroke(stroke: object) -> None:
+    # The native wait releases the GIL but would still block the event-loop
+    # thread. Retain the capsule in the worker and wait through repeated cancels.
+    try:
+        release = asyncio.get_running_loop().run_in_executor(
+            None, keyboard_end_c, stroke
+        )
+    except BaseException:
+        # Executor shutdown/allocation failure must not abandon already-posted down.
+        keyboard_end_c(stroke)
+        raise
+    cancellation = None
+    while True:
+        try:
+            await asyncio.shield(release)
+            break
+        except asyncio.CancelledError as error:
+            if release.cancelled():
+                # Shield prevents ordinary task cancellation from taking this path.
+                keyboard_end_c(stroke)
+                raise
+            cancellation = error
+        except BaseException as error:
+            if cancellation is not None:
+                raise cancellation from error
+            raise
+    if cancellation is not None:
+        raise cancellation
+
+
 async def keyboard_click(
     key: str,
     modifiers: set[MODIFIER] | None = None,
 ) -> None:
     """Press and release a keyboard key (key-down, short delay, key-up).
 
-    Once the key is pressed, release with the same modifiers is attempted even
-    on cancellation or failure. Callers must serialize overlapping input sequences.
+    Owns a private event source and a balanced modifier/key sequence. Only this
+    operation's synthetic state is released, including on cancellation or failure;
+    current physical keys and explicit low-level HID holds are preserved. Waits
+    for the source's release events to be processed (up to one second), raising
+    TimeoutError if delivery cannot be confirmed. Callers must still serialize
+    compound desktop actions to avoid interleaving their effects.
 
     Args:
         key: Named key (e.g. "a", "return"). See keys.KEY_CODES for valid names.
@@ -217,11 +264,22 @@ async def keyboard_click(
     """
     flags = _resolve_flags(modifiers)
     code = _resolve_key(key)
-    keyboard_click_c(code, "down", flags)
+    stroke = keyboard_begin_c(code, flags)
+    failure = None
     try:
         await asyncio.sleep(0.01)
+    except BaseException as error:
+        failure = error
+        raise
     finally:
-        keyboard_click_c(code, "up", flags)
+        try:
+            await _release_keyboard_stroke(stroke)
+        except BaseException as cleanup_error:
+            if failure is not None and not isinstance(
+                cleanup_error, asyncio.CancelledError
+            ):
+                raise failure from cleanup_error
+            raise
 
 
 async def key_combo(key: str, modifiers: set[MODIFIER]) -> None:

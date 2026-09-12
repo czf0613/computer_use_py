@@ -17,16 +17,13 @@ def input_events(monkeypatch):
     def mouse_button(key, action):
         events.append(("mouse", key, action))
 
-    def keyboard_key(code, action, flags):
-        events.append(("keyboard", code, action, flags))
-
     def move(x, y):
         events.append(("move", x, y))
 
     monkeypatch.setattr(capture, "mouse_click_action", mouse_button)
-    monkeypatch.setattr(capture, "keyboard_click_c", keyboard_key)
     monkeypatch.setattr(capture, "get_mouse_position", lambda: {"x": 0, "y": 0})
     monkeypatch.setattr(capture, "move_mouse_c", move)
+    monkeypatch.setattr(capture, "drag_mouse_c", move)
     return events
 
 
@@ -34,7 +31,6 @@ INPUT_OPERATIONS = [
     ("mouse_long_click", ("right", 0.01), ("mouse", "right", "down"), ("mouse", "right", "up")),
     ("mouse_click", ("left",), ("mouse", "left", "down"), ("mouse", "left", "up")),
     ("mouse_drag", ({"x": 15, "y": 15},), ("mouse", "left", "down"), ("mouse", "left", "up")),
-    ("keyboard_click", ("a", {"shift"}), ("keyboard", 0, "down", 0x020000), ("keyboard", 0, "up", 0x020000)),
 ]
 
 
@@ -89,7 +85,7 @@ async def test_drag_releases_when_cancelled_during_movement(monkeypatch, input_e
         input_events.append(("move", x, y))
         loop.call_soon(task.cancel)
 
-    monkeypatch.setattr(capture, "move_mouse_c", cancel_on_move)
+    monkeypatch.setattr(capture, "drag_mouse_c", cancel_on_move)
     task = asyncio.create_task(capture.mouse_drag({"x": 15, "y": 15}))
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -107,7 +103,7 @@ async def test_drag_releases_when_native_movement_fails(monkeypatch, input_event
     def fail_move(x, y):
         raise failure
 
-    monkeypatch.setattr(capture, "move_mouse_c", fail_move)
+    monkeypatch.setattr(capture, "drag_mouse_c", fail_move)
     with pytest.raises(OSError) as caught:
         await capture.mouse_drag({"x": 15, "y": 15})
 

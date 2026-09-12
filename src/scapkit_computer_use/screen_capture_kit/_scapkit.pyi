@@ -7,6 +7,34 @@ mouse and keyboard operations to prevent interleaving.
 from typing import Literal
 from .types import CaptureHandle, BGRAPack, Point2D, DisplayInfo
 
+def _drag_mouse(x: int, y: int) -> None:
+    """Internal: post left-button drag motion to an absolute point with deltas.
+
+    Caller owns button down/up. Unlike cursor warping, this delivers motion to
+    application drag tracking, including window moves between displays.
+    """
+    ...
+
+def _keyboard_begin(key_code: int, flags: int) -> object:
+    """Internal: allocate a private source and all paired events, then post down.
+
+    The opaque stroke owns its modifier/key state. Allocation failure has no
+    input effects. Posts at the session tap and preserves current HID flags;
+    the raw keyboard_click API still posts at the HID tap with exact caller flags.
+    """
+    ...
+
+def _keyboard_end(stroke: object) -> None:
+    """Internal: release this stroke's keys/modifiers and native objects once.
+
+    Idempotent and safe for concurrent calls on the same stroke. Dropping an
+    unfinished stroke also attempts cleanup; prefer deterministic try/finally.
+    Waits up to one second for its private source's keyboard event counters. Raises
+    TimeoutError on missing acknowledgment; releases are posted once even when
+    called again after timeout. It never clears global flags or retries input.
+    """
+    ...
+
 def keyboard_click(
     key_code: int, action: Literal["down", "up"], flags: int = 0
 ) -> None:
@@ -20,6 +48,11 @@ def keyboard_click(
         key_code: macOS virtual key code (CGKeyCode).
         action: "down" or "up".
         flags: Bitwise OR of CGEventFlags (default 0).
+
+    This raw API posts exactly one event with the supplied flags. It does not
+    acquire/release a shortcut's modifiers automatically. The caller owns every
+    down/up and flags transition, including modifier-key events and cancellation.
+    Use the high-level keyboard_click/key_combo for a balanced shortcut.
 
     Raises:
         ValueError: If action is not "down" or "up".

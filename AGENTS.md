@@ -14,6 +14,8 @@ unimplemented. Do not claim Windows desktop support or Windows runtime validatio
 - `src/scapkit_computer_use/`: public Python API and async wrappers.
 - `src/scapkit_computer_use/process.py`: shell environment bootstrap, process
   lifecycle and incremental text streams; no desktop extension dependency.
+- `src/scapkit_computer_use_mcp/`: optional FastAPI/official MCP SDK v2 server,
+  CLI, serialized device operations and packaged `agent_guide.md`.
 - `src/scapkit_computer_use/screen_capture_kit/_scapkit.pyi`: native API signatures.
 - `native_code/osx/src/`: `ext.c` module init, `control.c` input,
   `display.c` display queries, `capture.m` ScreenCaptureKit and frame encoding.
@@ -21,6 +23,7 @@ unimplemented. Do not claim Windows desktop support or Windows runtime validatio
 - `tests/`: automated boundary/synthetic tests and opt-in desktop integration tests.
 - `docs/development.md`: build, testing, ownership and compatibility details.
 - `docs/releasing.md`: CI and PyPI release instructions.
+- `docs/mcp-server.md`: optional installation, HTTP/stdio clients and deployment.
 
 ## Work and build
 
@@ -66,6 +69,17 @@ execution; on cancellation close local pipe transports and reap the child withou
 waiting for descendant-held pipes. Text streams are single-consumer objects tied to
 their event loop.
 
+MCP dependencies belong only in the `[mcp]` extra. Base imports and installation
+must work without them. Run `uv run --extra mcp pytest tests/test_mcp_server.py`
+with fake devices and disposable shell profiles; do not substitute real desktop
+calls. Keep one server worker per device and serialize compound input. Always
+close per-call capture handles and command pipes on failure/cancellation. Preserve
+Host/Origin validation and bearer protection for non-loopback CLI binding. Agent
+instructions, the guide resource and prompt share the packaged `agent_guide.md`.
+The MCP dependency chain includes CFFI, which rejects CPython 3.13t. Test the
+optional server on ordinary Python 3.10+ and free-threaded 3.14+, while retaining
+all 3.13t base-library CI checks and wheels. Do not weaken the GIL assertions.
+
 ## Native safety and conventions
 
 - Check every `PyArg_ParseTuple` result and every fallible Python allocation.
@@ -92,6 +106,16 @@ their event loop.
   and docstrings in `.pyi`; Python wrapper docstrings belong alongside wrappers.
 - Declare variables near use and use braces for every control-flow body.
 - Async key/button down operations must release in `finally` on cancellation.
+- High-level shortcuts own private CGEventSource state and balanced modifier/key
+  events. Private sources alone do not isolate global flags: post at the session
+  tap, merge current HID flags on every event, and acknowledge the private source's
+  keyboard event counts before returning. Keep acknowledgment waits off the asyncio
+  thread and preserve cancellation through cleanup. Preallocate release events before down, and never reset the
+  combined session or hardware state to zero. The raw single-event API leaves
+  modifier lifecycle ownership with its caller. `tests/test_modifier_lifecycle.py`
+  compiles the real C event builder with an offline post/warp receiver; it does
+  not prove WindowServer delivery or window focus. Manual acceptance lives under
+  `tests/manual/` and requires the user's prepared test environment and approval.
   Concurrent multi-step desktop actions are not atomic; callers serialize them.
 
 ## Network
