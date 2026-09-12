@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "12.3" CACHE STRING "Source build macOS deployment target")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Source build macOS deployment target")
 project(scapkit_computer_use_osx C OBJC)
 
 # This CMakeLists.txt is only for IDE code hints (e.g. CLion, VS Code).
@@ -12,6 +12,8 @@ add_library(_scapkit SHARED
     src/display.c
     src/control.c
     src/capture.m
+    src/recording.m
+    src/recording_writer.m
 )
 
 target_compile_options(_scapkit PRIVATE -fobjc-arc)
@@ -33,4 +35,7 @@ target_link_libraries(_scapkit PRIVATE
     "-framework CoreVideo"
     "-framework CoreImage"
     "-framework ImageIO"
+    "-framework VideoToolbox"
+    "-framework AVFoundation"
+    "-framework AudioToolbox"
 )

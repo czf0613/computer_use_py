@@ -5,7 +5,7 @@ mouse and keyboard operations to prevent interleaving.
 """
 
 from typing import Literal
-from .types import CaptureHandle, BGRAPack, Point2D, DisplayInfo
+from .types import CaptureHandle, RecordingHandle, BGRAPack, Point2D, DisplayInfo
 
 def _drag_mouse(x: int, y: int) -> None:
     """Internal: post left-button drag motion to an absolute point with deltas.
@@ -242,4 +242,25 @@ def current_frame_bgra(handle: CaptureHandle) -> BGRAPack | None:
     Raises:
         OSError: If pixel-buffer access fails.
     """
+    ...
+
+def start_recording(
+    display_id: int, output_path: str, fps: int, video_quality: float | None = 0.75
+) -> RecordingHandle:
+    """Start a display and system-audio recording after its initial video frame.
+
+    The returned recording capsule is distinct from CaptureHandle. The caller
+    must pass it to stop_recording to finish and publish the output file.
+    Quality defaults to 0.75; explicit None uses the encoder default.
+    """
+    ...
+
+def stop_recording(
+    handle: RecordingHandle,
+) -> dict[str, str | int | float]:
+    """Idempotently finish a recording and return its file metadata."""
+    ...
+
+def _abort_recording(handle: RecordingHandle) -> None:
+    """Internal: cancel a recording and remove its unpublished temporary file."""
     ...

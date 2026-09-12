@@ -3,8 +3,8 @@
 ## Scope and structure
 
 `scapkit_computer_use` is a Python desktop automation library for CPython **3.10+**,
-including free-threaded CPython 3.13/3.14. Its ScreenCaptureKit APIs require macOS
-12.3; source builds default to that deployment target and do not restrict CPU
+including free-threaded CPython 3.13/3.14. The library requires macOS
+13.0; source builds default to that deployment target and do not restrict CPU
 architecture. Official prebuilt wheels target **macOS 15+ arm64**; CI runs on
 macOS 15 / 26 arm64. Do not confuse this distribution policy with source
 compatibility or claim older macOS / Intel runtime verification. Windows source
@@ -14,6 +14,9 @@ unimplemented. Do not claim Windows desktop support or Windows runtime validatio
 - `src/scapkit_computer_use/`: public Python API and async wrappers.
 - `src/scapkit_computer_use/process.py`: shell environment bootstrap, process
   lifecycle and incremental text streams; no desktop extension dependency.
+- `src/scapkit_computer_use/recording.py`: async recording API and cancellation cleanup.
+- `native_code/osx/src/recording.m`: stream ownership, cached frames and recording clock.
+- `native_code/osx/src/recording_writer.m`: hardware H.264, AAC and MP4 file lifecycle.
 - `src/scapkit_computer_use_mcp/`: optional FastAPI/official MCP SDK v2 server,
   CLI, serialized device operations and packaged `agent_guide.md`.
 - `src/scapkit_computer_use/screen_capture_kit/_scapkit.pyi`: native API signatures.
@@ -52,10 +55,14 @@ Never grant OS permissions just to make automated tests pass.
 ```sh
 SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
 uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py tests/test_process.py
+uv run pytest tests/test_recording.py tests/test_recording_integration.py tests/test_native_recording.py tests/test_recording_writer.py
 ```
 
 Test helpers compile only under `SCAPKIT_TESTING=1`; published wheels must omit
 them. No unit/CI test should record the screen, post input or change the clipboard.
+Recording tests may encode synthetic pixels and PCM with real codecs; they must
+not acquire a real display, system audio, or microphone. Real recording tests
+under `tests/manual/` require user preparation and authorization first.
 Test native changes on Python 3.10 and a free-threaded build; verify importing
 the extension does not enable the GIL. Use compiler warnings and static analysis
 in addition to Python tests. A passing synthetic test does not prove real

@@ -78,7 +78,7 @@ jobs:
           for key in ('include', 'platinclude'):
               flags.append('-I' + sysconfig.get_path(key))
           sources = sorted(Path('native_code/osx/src').glob('*'))
-          for target in ('12.3', '15.0'):
+          for target in ('13.0', '15.0'):
               for testing in (False, True):
                   for source in sources:
                       if source.suffix not in ('.c', '.m'):
@@ -109,6 +109,10 @@ jobs:
             tests/test_native_arguments.py \
             tests/test_native_validation.py \
             tests/test_async_safety.py \
+            tests/test_recording.py \
+            tests/test_recording_integration.py \
+            tests/test_native_recording.py \
+            tests/test_recording_writer.py \
             tests/test_modifier_lifecycle.py \
             tests/test_process.py
       - name: Install optional MCP dependencies and test protocol without desktop access

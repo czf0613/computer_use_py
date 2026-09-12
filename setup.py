@@ -1,10 +1,10 @@
 import os
 import platform
 
-# Source builds use the minimum version of the ScreenCaptureKit APIs we call.
+# Source builds use the library's minimum supported macOS version.
 # Release CI explicitly selects 15.0 and arm64 for the prebuilt wheels.
 if platform.system() == "Darwin":
-    deployment_target = os.environ.setdefault("MACOSX_DEPLOYMENT_TARGET", "12.3")
+    deployment_target = os.environ.setdefault("MACOSX_DEPLOYMENT_TARGET", "13.0")
     deployment_target_arg = f"-mmacosx-version-min={deployment_target}"
 
 from setuptools import setup, Extension
@@ -24,6 +24,8 @@ match platform.system():
                     "native_code/osx/src/display.c",
                     "native_code/osx/src/control.c",
                     "native_code/osx/src/capture.m",
+                    "native_code/osx/src/recording.m",
+                    "native_code/osx/src/recording_writer.m",
                 ],
                 define_macros=define_macros,
                 include_dirs=["native_code/osx/include"],
@@ -45,6 +47,12 @@ match platform.system():
                     "CoreVideo",
                     "-framework",
                     "ImageIO",
+                    "-framework",
+                    "VideoToolbox",
+                    "-framework",
+                    "AVFoundation",
+                    "-framework",
+                    "AudioToolbox",
                     deployment_target_arg,
                 ],
             )

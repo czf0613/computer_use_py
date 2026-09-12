@@ -1,7 +1,15 @@
 from typing import TypedDict, final
 from abc import ABC
+from ..recording import RecordingHandle
 
-__all__ = ["DisplayInfo", "Point2D", "Vector2D", "CaptureHandle", "BGRAPack"]
+__all__ = [
+    "DisplayInfo",
+    "Point2D",
+    "Vector2D",
+    "CaptureHandle",
+    "RecordingHandle",
+    "BGRAPack",
+]
 
 
 @final

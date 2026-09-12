@@ -1,6 +1,6 @@
 # 开发与验证
 
-所用 ScreenCaptureKit API 最低支持 macOS 12.3，源码构建默认使用此部署目标，
+库最低支持 macOS 13.0，源码构建默认使用此部署目标，
 不限制 CPU 架构。官方 wheel 仅提供 macOS 15+ arm64 版本，CI 运行于 macOS
 15 / 26 arm64；这是发行与验证范围，不是库本身的系统或架构限制。旧系统和 Intel
 Mac 的实际运行尚未验证。Windows 原生扩展尚未实现，源码安装仅提供纯 Python
@@ -18,7 +18,7 @@ uv run setup.py build_ext --inplace --force
 
 `.python-version` 固定最低支持版本，`setup.py` 是实际构建入口；CMake 文件只服务于
 IDE。编译使用 ARC，并链接所用 Apple frameworks。`MACOSX_DEPLOYMENT_TARGET`
-默认为 `12.3`；可通过环境变量选择部署目标，编译和链接均显式传入该值。
+默认为 `13.0`；可通过环境变量选择更高的部署目标，编译和链接均显式传入该值。
 架构跟随 Python/编译工具链，也可通过 `ARCHFLAGS` 指定；项目不强制 arm64。
 官方 wheel 的发布 workflow 单独指定 `MACOSX_DEPLOYMENT_TARGET=15.0` 和
 `ARCHFLAGS='-arch arm64'`。部署目标不代表已经在对应版本的 macOS 上运行验证。
@@ -28,6 +28,7 @@ IDE。编译使用 ARC，并链接所用 Apple frameworks。`MACOSX_DEPLOYMENT_T
 ```sh
 SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
 uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py tests/test_process.py
+uv run pytest tests/test_recording.py tests/test_recording_integration.py tests/test_native_recording.py tests/test_recording_writer.py
 ```
 
 合成测试在内存中创建 8×8 BGRA `CVPixelBuffer`，覆盖 BGRA/JPEG 输出、重复停止、
@@ -51,6 +52,30 @@ uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tes
 真实桌面测试分布在 `test_capture.py`、`test_mouse.py`、`test_keyboard.py`、
 `test_list_displays.py`，需要单独授权；截图测试会在 `data/` 保存实际屏幕图像。
 不能把这些测试加入无人值守 CI，也不能用全套测试代替上述安全测试集。
+
+录制测试使用合成像素和 PCM：`test_recording_writer.py` 编译独立原生 probe，验证真实
+硬件 H.264、AAC、AVAssetWriter 与 AVAssetReader；`test_native_recording.py` 用测试
+入口绕过所有显示器查询和 SCStream 创建，覆盖固定帧时钟与停止状态机；Python 测试
+验证参数、异步取消和迟到资源清理。本地存在 ffprobe 时增加容器检查。
+实际 ScreenCaptureKit 交付与 QuickTime 播放必须在用户准备好后单独验收，不能从合成
+测试推断已验证。操作说明见 [录制手工验收](../tests/manual/recording.md)。
+
+## 录制原生边界
+
+`recording.m` 管理 stream、最新/待提交像素帧与 host-clock 输出时钟。capture queue
+串行处理输入，NSCondition 同步启动和停止结果；capsule 的 Objective-C 指针在析构前
+始终不变。delegate 使用 weak owner，停止完成或超时后断开输出。结束只执行一次，
+并发停止等待同一结果；析构发起 abort，不发布文件。
+
+`recording_writer.m` 独立管理硬件 VideoToolbox session、AAC 和 MP4 临时文件。
+提交/结束/取消从调用方串行调用，内部编码回调与写入队列独立。停止排空时不持有
+Python thread state、capture queue 或 condition，避免回调死锁。
+正常提交最多允许两帧在途，槽位覆盖压缩输出写入完成；只在最终停止时调用
+`VTCompressionSessionCompleteFrames`，避免逐帧同步等待阻塞采集并重复旧画面。
+音频静音补齐跟随已完成视频时间。可选 `video_quality` 控制质量，由编码器分配码率；
+指定时检查硬件编码器支持情况。异步回调通过弱 owner 的完成上下文访问 writer，
+取消在编码器失效及队列排空后恢复未返回的槽位，允许最终引用在输出队列释放。
+新增 API 和类型见 [录制说明](recording.md)。
 
 ## 截图生命周期与并发约定
 

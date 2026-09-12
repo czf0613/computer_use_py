@@ -36,7 +36,7 @@ def native_probe(tmp_path_factory):
             "-std=c11",
             "-DPY_SSIZE_T_CLEAN",
             "-Werror",
-            "-mmacosx-version-min=12.3",
+            "-mmacosx-version-min=13.0",
             "-I" + sysconfig.get_path("include"),
             "-I" + str(ROOT / "native_code/osx/include"),
             str(ROOT / "tests/native/input_probe.c"),

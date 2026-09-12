@@ -2,6 +2,7 @@
 #include "display.h"
 #include "control.h"
 #include "capture.h"
+#include "recording.h"
 
 static PyMethodDef ScapkitMethods[] = {
     {"list_displays", scapkit_list_displays, METH_NOARGS, NULL},
@@ -19,7 +20,16 @@ static PyMethodDef ScapkitMethods[] = {
     {"stop_capture", scapkit_stop_capture, METH_VARARGS, NULL},
     {"current_frame_jpg", scapkit_current_frame_jpg, METH_VARARGS, NULL},
     {"current_frame_bgra", scapkit_current_frame_bgra, METH_VARARGS, NULL},
+    {"start_recording", scapkit_start_recording, METH_VARARGS, NULL},
+    {"stop_recording", scapkit_stop_recording, METH_VARARGS, NULL},
+    {"_abort_recording", scapkit_abort_recording, METH_VARARGS, NULL},
 #ifdef SCAPKIT_TESTING
+    {"_test_recording", scapkit_test_recording, METH_VARARGS, NULL},
+    {"_test_recording_tick", scapkit_test_recording_tick, METH_VARARGS, NULL},
+    {"_test_stop_recording_at", scapkit_test_stop_recording_at, METH_VARARGS, NULL},
+    {"_test_recording_owners", scapkit_test_recording_owners, METH_NOARGS, NULL},
+    {"_test_recording_state", scapkit_test_recording_state, METH_VARARGS, NULL},
+    {"_test_recording_audio", scapkit_test_recording_audio, METH_VARARGS, NULL},
     {"_test_capture", scapkit_test_capture, METH_VARARGS, NULL},
     {"_test_update_frame", scapkit_test_update_frame, METH_VARARGS, NULL},
     {"_test_live_frames", scapkit_test_live_frames, METH_NOARGS, NULL},

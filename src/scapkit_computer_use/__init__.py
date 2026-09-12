@@ -5,6 +5,7 @@ import platform
 from asyncio import subprocess
 
 if TYPE_CHECKING:
+    from .recording import RecordingHandle, RecordingResult
     from .screen_capture_kit import (
         move_mouse,
         move_mouse_relative,
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
         stop_capture,
         current_frame_jpg,
         current_frame_bgra,
+        start_recording,
+        stop_recording,
         types,
     )
     from .screen_capture_kit._scapkit import list_displays, get_mouse_position
@@ -53,6 +56,10 @@ __all__ = [
     "stop_capture",
     "current_frame_jpg",
     "current_frame_bgra",
+    "RecordingHandle",
+    "RecordingResult",
+    "start_recording",
+    "stop_recording",
 ]
 
 _DESKTOP_EXPORTS = frozenset(__all__) - {
@@ -62,6 +69,9 @@ _DESKTOP_EXPORTS = frozenset(__all__) - {
     "check_permission",
     "open_permission_settings",
 }
+_RECORDING_EXPORTS = frozenset(
+    {"RecordingHandle", "RecordingResult", "start_recording", "stop_recording"}
+)
 if platform.system() != "Darwin":
     __all__ = [name for name in __all__ if name not in _DESKTOP_EXPORTS]
 
@@ -71,6 +81,8 @@ def __getattr__(name: str):
     if name in _DESKTOP_EXPORTS:
         if platform.system() != "Darwin":
             raise NotImplementedError(f"{name} requires the macOS desktop extension")
+        if name in _RECORDING_EXPORTS:
+            return getattr(import_module(".recording", __name__), name)
         suffix = "._scapkit" if name in {"list_displays", "get_mouse_position"} else ""
         return getattr(import_module(".screen_capture_kit" + suffix, __name__), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

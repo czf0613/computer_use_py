@@ -1,8 +1,8 @@
 # scapkit_computer_use
 
-跨平台桌面自动化 Python 库，提供屏幕截图、鼠标控制、键盘输入、剪贴板和 subprocess 操作。
+跨平台桌面自动化 Python 库，提供屏幕截图、屏幕与系统声音录制、鼠标控制、键盘输入、剪贴板和 subprocess 操作。
 
-当前支持 macOS；所用 ScreenCaptureKit API 的最低系统版本为 macOS 12.3。
+当前支持 macOS；库的最低系统版本为 macOS 13.0。
 官方预编译 wheel 仅提供 macOS 15+ arm64 版本，这不是源码安装的系统或架构限制。
 Windows 目前提供纯 Python subprocess 接口（源码安装）；桌面控制扩展仍在开发中。
 
@@ -14,7 +14,7 @@ Windows 目前提供纯 Python subprocess 接口（源码安装）；桌面控�
 pip install scapkit_computer_use
 ```
 
-较早的 macOS（12.3+）或 Intel Mac 可从源码构建，需要安装 Xcode Command Line
+较早的 macOS（13.0+）或 Intel Mac 可从源码构建，需要安装 Xcode Command Line
 Tools，并使用包含 ScreenCaptureKit 的 macOS SDK：
 
 ```bash
@@ -32,7 +32,7 @@ uv add scapkit_computer_use
 ## 可选 MCP Server
 
 源码新增了基于 FastAPI 的 MCP server，供 agent 通过标准 MCP 工具控制设备。
-普通安装不引入 MCP/FastAPI 依赖。当前 PyPI `0.0.3` 尚未包含此功能，先从源码运行：
+普通安装不引入 MCP/FastAPI 依赖。MCP 服务自 `0.1.0` 起提供，也可从源码运行：
 
 ```sh
 uv sync --extra mcp
@@ -54,7 +54,7 @@ Retina 坐标换算及操作后的验证流程。
 macOS 下需要授予以下系统权限：
 
 - **辅助功能 (Accessibility)**：鼠标、键盘控制
-- **屏幕录制 (Screen Recording)**：屏幕截图
+- **屏幕录制 (Screen Recording)**：屏幕截图、屏幕与系统声音录制；不会采集麦克风
 
 ```python
 from scapkit_computer_use import check_permission, open_permission_settings
@@ -171,6 +171,27 @@ frame = await current_frame_bgra(handle)
 # 停止截图
 await stop_capture(handle)
 ```
+
+### 屏幕与系统声音录制
+
+指定显示器和保存路径，输出 QuickTime 兼容的 H.264/AAC MP4：
+
+```python
+from scapkit_computer_use import start_recording, stop_recording
+
+handle = await start_recording(display_id, "/path/to/recording.mp4", fps=30)
+try:
+    await do_something()
+finally:
+    result = await stop_recording(handle)
+print(result.path, result.size_bytes, result.duration_s)
+```
+
+默认固定 30 fps，支持指定整数帧率；画面静止时继续使用缓存帧，停止时补齐最后一个
+帧区间。只录制系统播放声音，不采集麦克风。VideoToolbox 要求硬件 H.264 编码，视频
+默认 `video_quality=0.75`，可传入其他 0～1 数值调整质量，或用 `None` 保留编码器策略。
+编码器按内容和分辨率分配码率。输出父目录必须存在，已有文件不会被覆盖。
+详见 [录制接口、生命周期与异常说明](docs/recording.md)。
 
 ### 执行 subprocess
 

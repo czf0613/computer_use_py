@@ -21,7 +21,8 @@ from ._scapkit import (
     current_frame_bgra as current_frame_bgra_c,
 )
 from typing import Literal
-from .types import Point2D, Vector2D, CaptureHandle, BGRAPack
+from .types import Point2D, Vector2D, CaptureHandle, RecordingHandle, BGRAPack
+from ..recording import RecordingResult, start_recording, stop_recording
 from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 import asyncio
 from asyncio import subprocess
