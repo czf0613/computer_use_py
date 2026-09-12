@@ -3,7 +3,8 @@
 所用 ScreenCaptureKit API 最低支持 macOS 12.3，源码构建默认使用此部署目标，
 不限制 CPU 架构。官方 wheel 仅提供 macOS 15+ arm64 版本，CI 运行于 macOS
 15 / 26 arm64；这是发行与验证范围，不是库本身的系统或架构限制。旧系统和 Intel
-Mac 的实际运行尚未验证。Windows 原生扩展尚未实现。最低 Python 版本为 3.10，
+Mac 的实际运行尚未验证。Windows 原生扩展尚未实现，源码安装仅提供纯 Python
+subprocess 功能。最低 Python 版本为 3.10，
 free-threaded ABI 从 CPython 3.13 开始单独构建。3.10 普通解释器本身仍有 GIL。
 
 ## 本地构建
@@ -26,7 +27,7 @@ IDE。编译使用 ARC，并链接所用 Apple frameworks。`MACOSX_DEPLOYMENT_T
 
 ```sh
 SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
-uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py
+uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py tests/test_process.py
 ```
 
 合成测试在内存中创建 8×8 BGRA `CVPixelBuffer`，覆盖 BGRA/JPEG 输出、重复停止、
@@ -34,6 +35,10 @@ uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tes
 超时后迟到回调，并核对 frame/stream/delegate/回调持有者释放计数。输入测试使用非法参数或 mock，
 不移动鼠标、不点击、不操作剪贴板、不读取屏幕。测试 hooks 在正常构建中不可见。
 改变 ABI 或 `SCAPKIT_TESTING` 后必须加 `--force` 重新编译。
+
+单独验证进程接口可运行 `uv run pytest tests/test_process.py`，不需要加载原生扩展。
+这些测试使用临时 zsh profile 和本地子进程，覆盖文本流、环境隔离、编码、取消回收，
+以及 Windows API 的模拟检查。接口和平台限制见 [进程执行](subprocess.md)。
 
 真实桌面测试分布在 `test_capture.py`、`test_mouse.py`、`test_keyboard.py`、
 `test_list_displays.py`，需要单独授权；截图测试会在 `data/` 保存实际屏幕图像。

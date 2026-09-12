@@ -50,9 +50,8 @@ match platform.system():
             )
         )
     case "Windows":
-        raise RuntimeError(
-            "scapkit_computer_use does not yet support Windows. Windows support is coming soon."
-        )
+        # Subprocess support is pure Python; desktop control is still macOS-only.
+        pass
     case unsupported:
         raise RuntimeError(f"scapkit_computer_use does not support {unsupported}.")
 

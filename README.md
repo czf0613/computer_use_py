@@ -1,10 +1,10 @@
 # scapkit_computer_use
 
-跨平台桌面自动化 Python 库，提供屏幕截图、鼠标控制、键盘输入和剪贴板操作。
+跨平台桌面自动化 Python 库，提供屏幕截图、鼠标控制、键盘输入、剪贴板和 subprocess 操作。
 
 当前支持 macOS；所用 ScreenCaptureKit API 的最低系统版本为 macOS 12.3。
 官方预编译 wheel 仅提供 macOS 15+ arm64 版本，这不是源码安装的系统或架构限制。
-Windows 支持开发中。
+Windows 目前提供纯 Python subprocess 接口（源码安装）；桌面控制扩展仍在开发中。
 
 ## 安装
 
@@ -152,6 +152,70 @@ frame = await current_frame_bgra(handle)
 await stop_capture(handle)
 ```
 
+### 执行 subprocess
+
+`run_subprocess()` 是异步函数。可执行文件与参数分开传入；执行 shell 命令时，
+把 shell 作为可执行文件，并传入 `-c` 或 `/c` 等参数。
+
+```python
+import sys
+from scapkit_computer_use import run_subprocess
+
+result = await run_subprocess(
+    sys.executable,
+    ["-c", "import os; print(os.getenv('EXAMPLE'))"],
+    cwd="/path/to/workdir",
+    env={"EXAMPLE": "你好"},
+)
+print(result.returncode, result.stdout, result.stderr)
+# 也可以解包：returncode, stdout, stderr = result
+
+result = await run_subprocess("/bin/zsh", ["-c", "printf '%s' hello"])
+# Windows 示例：await run_subprocess("cmd.exe", ["/c", "echo hello"])
+```
+
+| 参数 | 含义 |
+| --- | --- |
+| `executable` | 可执行文件名称或路径；名称通过加载后的环境 PATH 查找 |
+| `args=()` | 参数序列，保留空格和特殊字符；不会自动拼接成 shell 命令 |
+| `cwd=None` | 工作目录，默认当前工作目录 |
+| `env=None` | 在 shell 环境上新增或覆盖的变量，均为字符串 |
+| `use_stream=False` | 默认等待退出，返回退出码和两路文本；为 True 时返回运行中的 `SubprocessStream` |
+| `encoding=None` | macOS 默认 UTF-8；Windows 默认控制台输出代码页，无控制台时用系统 OEM 代码页 |
+| `errors="strict"` | 解码错误默认抛异常；可指定 `"replace"` 保留其他可解码内容 |
+
+环境来自重新加载的系统/用户 shell 配置，**不继承当前 Python 进程的环境变量**。
+macOS 读取账户登录 shell 的 login/interactive 配置；Windows 从系统和用户配置构造环境，
+再执行 cmd AutoRun。调用方传入的 `env` 最后合并。详情见 [进程执行说明](https://github.com/czf0613/computer_use_py/blob/master/docs/subprocess.md)。
+
+流式 stdin 接收字符串，stdout/stderr 支持异步 `read()`、`readline()` 和逐行迭代：
+
+```python
+import asyncio
+
+process = await run_subprocess(
+    sys.executable, ["-u", "-c", "import sys; print(input()); print('done', file=sys.stderr)"],
+    use_stream=True,
+)
+
+async def feed():
+    process.stdin.write("你好\n")
+    await process.stdin.drain()
+    process.stdin.close()
+
+async def consume(stream):
+    async for line in stream:
+        print(line, end="")
+
+await asyncio.gather(feed(), consume(process.stdout), consume(process.stderr))
+returncode = await process.wait()
+# 或：stdout, stderr = await process.communicate("你好\n")
+```
+
+Windows 程序可能输出 UTF-8、GBK、ANSI 或 UTF-16；无法通用地自动判断。
+例如使用 `encoding="utf-8"`、`encoding="gbk"` 或 `encoding="utf-16-le"` 明确指定。
+同一编码用于该进程的三路文本流；跨块中文由增量解码器处理，换行统一为 `\n`。
+
 ## 开发
 
 ```bash
@@ -160,7 +224,7 @@ uv run setup.py build_ext --inplace
 
 # 构建带合成测试支持的扩展，运行不操作桌面的测试
 SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
-uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py
+uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py tests/test_process.py
 ```
 
 构建环境、并发约定和测试边界见 [开发文档](https://github.com/czf0613/computer_use_py/blob/master/docs/development.md)，

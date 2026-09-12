@@ -108,4 +108,5 @@ jobs:
             tests/test_capture_lifecycle.py \
             tests/test_native_arguments.py \
             tests/test_native_validation.py \
-            tests/test_async_safety.py
+            tests/test_async_safety.py \
+            tests/test_process.py

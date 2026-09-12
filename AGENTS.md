@@ -7,10 +7,13 @@ including free-threaded CPython 3.13/3.14. Its ScreenCaptureKit APIs require mac
 12.3; source builds default to that deployment target and do not restrict CPU
 architecture. Official prebuilt wheels target **macOS 15+ arm64**; CI runs on
 macOS 15 / 26 arm64. Do not confuse this distribution policy with source
-compatibility or claim older macOS / Intel runtime verification. Windows is a
-placeholder; do not claim Windows support.
+compatibility or claim older macOS / Intel runtime verification. Windows source
+installs provide the pure-Python subprocess API only; desktop control is still
+unimplemented. Do not claim Windows desktop support or Windows runtime validation.
 
 - `src/scapkit_computer_use/`: public Python API and async wrappers.
+- `src/scapkit_computer_use/process.py`: shell environment bootstrap, process
+  lifecycle and incremental text streams; no desktop extension dependency.
 - `src/scapkit_computer_use/screen_capture_kit/_scapkit.pyi`: native API signatures.
 - `native_code/osx/src/`: `ext.c` module init, `control.c` input,
   `display.c` display queries, `capture.m` ScreenCaptureKit and frame encoding.
@@ -45,7 +48,7 @@ Never grant OS permissions just to make automated tests pass.
 
 ```sh
 SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
-uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py
+uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py tests/test_process.py
 ```
 
 Test helpers compile only under `SCAPKIT_TESTING=1`; published wheels must omit
@@ -54,6 +57,14 @@ Test native changes on Python 3.10 and a free-threaded build; verify importing
 the extension does not enable the GIL. Use compiler warnings and static analysis
 in addition to Python tests. A passing synthetic test does not prove real
 ScreenCaptureKit behavior or the absence of all leaks.
+
+Subprocess tests use disposable shell profiles and real child processes. Never
+copy the current Python process's environment into children; load a clean login
+shell environment (Windows: user/system environment block with inheritance off,
+then cmd AutoRun) and apply explicit overrides. Drain both outputs during normal
+execution; on cancellation close local pipe transports and reap the child without
+waiting for descendant-held pipes. Text streams are single-consumer objects tied to
+their event loop.
 
 ## Native safety and conventions
 
