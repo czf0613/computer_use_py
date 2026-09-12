@@ -77,7 +77,7 @@ waiting for descendant-held pipes. Text streams are single-consumer objects tied
 their event loop.
 
 MCP dependencies belong only in the `[mcp]` extra. Base imports and installation
-must work without them. Run `uv run --extra mcp pytest tests/test_mcp_server.py`
+must work without them. Run `uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py`
 with fake devices and disposable shell profiles; do not substitute real desktop
 calls. Keep one server worker per device and serialize compound input. Always
 close per-call capture handles and command pipes on failure/cancellation. Preserve

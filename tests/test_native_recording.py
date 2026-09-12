@@ -108,6 +108,13 @@ def test_real_timer_repeats_synthetic_frame_without_capture_callbacks(tmp_path):
 
 
 def test_destructor_retains_cleanup_owner_until_delayed_stream_stop(tmp_path):
+    # A prior optional ffprobe skip can retain its frame/handle in a traceback
+    # until GC. Drain those owners before measuring this recording's lifetime.
+    gc.collect()
+    deadline = time.monotonic() + 3
+    while native._test_recording_owners() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert native._test_recording_owners() == 0
     before = native._test_recording_owners()
     handle = make_recording(tmp_path / "delayed.mp4", mode="stop_delayed")
     native._test_recording_tick(handle, 100_000_000)

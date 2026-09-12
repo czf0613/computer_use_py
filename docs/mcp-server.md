@@ -9,7 +9,7 @@ MCP 模块支持常规 CPython 3.10+ 和 free-threaded 3.14+。**不支持 3.13t
 free-threaded CPython 3.13。需要无 GIL MCP 服务时请选择 3.14t。基础库自身的 3.13t
 支持和 wheel 不受影响。
 
-本功能目前在源码中，已发布的 PyPI `0.0.3` 尚不包含它；本次没有修改版本号。
+MCP 服务自 `0.1.0` 起提供，`0.1.1` 增加屏幕与系统声音录制工具。
 
 ## 安装与运行
 
@@ -27,7 +27,7 @@ pip install '.[mcp]'
 scapkit-mcp
 ```
 
-包含此功能的版本发布后，可使用 `pip install 'scapkit_computer_use[mcp]'`。
+安装已发布的版本可使用 `pip install 'scapkit_computer_use[mcp]'`。
 基础安装 `pip install scapkit_computer_use` 不会安装 MCP 依赖。
 
 默认只监听 `127.0.0.1:8000`，一个进程控制一台设备：
@@ -104,6 +104,9 @@ Retina、负坐标显示器和客户端缩放。服务不会向 agent 暴露 nat
 | `device_info` | 平台、能力与权限状态，不弹授权窗口 |
 | `list_displays` | 显示器 ID、全局位置、point 尺寸、缩放比例 |
 | `screenshot` | 返回 JPEG 图像内容与坐标换算元数据，调用后停止截图流 |
+| `start_recording` | 开始指定显示器和系统声音录制，返回录制 ID |
+| `stop_recording` | 按录制 ID 停止并完成 MP4，返回文件元数据 |
+| `recording_status` | 查询当前或最近一次录制的状态、ID 和设置 |
 | `get_mouse_position` / `move_mouse` | 读取或移动全局 point 坐标 |
 | `click` / `drag` | 串行完成移动加点击，或从指定起点拖动到终点 |
 | `scroll` | 内容移动方向与滚动行数 |
@@ -126,6 +129,44 @@ native 启动和停止使用基础库自身的超时及清理逻辑。
 
 剪贴板操作被取消时，服务会等待已经发出的读写结束后再释放设备锁，防止延迟写入
 覆盖下一次操作的内容；取消的 `type_text` 不会在写入完成后继续执行粘贴。
+
+## 通过 MCP 录制视频
+
+```python
+started = await client.call_tool("start_recording", {
+    "output_path": "/absolute/path/on/server/recording.mp4",
+    # "display_id": 7,       # 省略时录制主屏幕
+    "fps": 30,
+    "video_quality": 0.75,
+})
+if started.is_error:
+    raise RuntimeError(started.content)
+recording_id = started.structured_content["recording_id"]
+try:
+    await asyncio.sleep(20)  # 期间仍可调用截图、输入等工具
+finally:
+    stopped = await client.call_tool("stop_recording", {"recording_id": recording_id})
+if stopped.is_error:
+    raise RuntimeError(stopped.content)
+print(stopped.structured_content["result"])
+```
+
+文件保存在**运行服务的电脑**上，父目录必须存在，已有文件不会覆盖；工具不传输视频内容。
+视频为 VideoToolbox 硬件 H.264、音频为系统播放声音的 AAC，不采集麦克风。
+`fps` 默认 30，`video_quality` 默认 0.75；质量接受 0～1 的有限数值，显式 `null`
+（Python 中为 `None`）保留编码器默认策略。质量不设固定码率。需要 macOS 13+ 和
+屏幕录制权限，编码细节见 [录制接口](recording.md)。
+
+每个服务同时管理一段录制，所有客户端共享状态。`start_recording` 等首帧就绪后返回；
+`stop_recording` 等 MP4 收尾完成后返回，`result` 包含 `path`、`size_bytes`、
+`duration_s`、`width`、`height`、`fps`。重复停止同一个 ID 会复用结果；下一段开始后
+旧 ID 失效，不能误停新录制。停止不重新检查权限，便于在权限被撤回后清理资源。
+
+`recording_status` 返回 `idle`、`recording`、`completed` 或 `failed`，以及当前/最近一次
+录制的 ID 和设置；已完成时附文件结果，失败时附收尾错误。它不主动查询编码器健康状态。
+HTTP 连接断开不会停止录制，可重连查询 ID 后停止；状态只保留至下一次成功开始或服务重启。
+开始/停止请求取消时会等待清理，可能保存部分录制，请先查询状态再重试。HTTP 服务正常退出
+和 stdio 会话正常结束时会完成仍在进行的录制；崩溃、强制终止不保证文件完整。
 
 ## HTTP 身份验证和远程访问
 
@@ -159,7 +200,7 @@ lifespan，FastAPI 不会自动执行被挂载子应用的启动/关闭逻辑。
 ## 开发验证
 
 ```sh
-uv run --extra mcp pytest tests/test_mcp_server.py
+uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py
 ```
 
 测试使用 fake 设备和本地临时 shell profile，不截图、不移动鼠标、不操作真实剪贴板。

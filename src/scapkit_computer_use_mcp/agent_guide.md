@@ -53,6 +53,33 @@ or bottom exclusive boundary.
   is not a transaction; use one controlling agent and one server worker per device.
   Low-level key-down/button-down handles are deliberately not exposed.
 
+## Screen and system-audio recording
+
+Use `start_recording` with a new `output_path` on the **server computer** and an
+optional `display_id` (omitted means main). The parent directory must exist;
+existing files are never replaced. Recording requires macOS 13+, ScreenCapture
+permission and hardware H.264 support. It saves QuickTime-compatible H.264/AAC
+MP4, including system playback audio and never the microphone. Default `fps` is
+30 and `video_quality` is 0.75 (0..1); `null` uses the encoder's quality defaults.
+Quality controls compression without prescribing a resolution-specific bitrate.
+
+The start result provides a `recording_id`. Only one recording can be active per
+server; screenshots, input and command tools remain available between start and
+stop. Call `stop_recording` with that ID when done. Its `result` contains the
+server-local path, size_bytes, duration_s, width, height and fps; the video is not
+transferred to the client. Repeating stop returns the same result until another
+recording starts. An expired ID cannot stop a newer recording.
+
+Use `recording_status` after a lost response or HTTP reconnection to recover the
+current/latest ID, settings and state (idle, recording, completed or failed).
+This is server-wide state shared by all clients, not per-client ownership or
+live encoder-health polling. History is replaced on the next successful start
+and lost on server restart. A recording survives HTTP client disconnection;
+always stop it explicitly. A cancelled start/stop waits for cleanup and may save
+a partial recording; inspect status before retrying. Graceful HTTP server or
+stdio shutdown finalizes any active recording. A crash or forced kill cannot
+guarantee a completed file.
+
 ## Commands
 
 `run_subprocess` accepts an executable and literal argument list, optional `cwd`

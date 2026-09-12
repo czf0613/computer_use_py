@@ -3,6 +3,8 @@
 import asyncio
 import inspect
 import platform
+from pathlib import Path
+from uuid import uuid4
 
 import anyio
 
@@ -70,6 +72,125 @@ class Device:
         self.computer = scapkit_computer_use if computer is None else computer
         self.system = platform.system() if system is None else system
         self.lock = asyncio.Lock()
+        self._recording_handle = None
+        self._recording_info = {"state": "idle"}
+        self._closed = False
+
+    async def start_recording(
+        self, output_path, display_id=None, fps=30, video_quality=0.75
+    ):
+        async with self.lock:
+            self.require_desktop("ScreenCapture")
+            if self._closed:
+                raise ValueError(
+                    "This recording service has shut down; reconnect to a running server."
+                )
+            if self._recording_handle is not None:
+                raise ValueError(
+                    "A recording is already active. Call recording_status, then stop_recording first."
+                )
+            displays = self.computer.list_displays()
+            display = (
+                next((d for d in displays if d["id"] == display_id), None)
+                if display_id is not None
+                else next((d for d in displays if d["is_main"]), None)
+            )
+            if display is None:
+                raise ValueError(
+                    "Display not found. Call list_displays to get a current display_id."
+                )
+            info = {
+                "state": "recording",
+                "recording_id": uuid4().hex,
+                "display_id": display["id"],
+                "path": str(Path(output_path).absolute()),
+                "fps": fps,
+                "video_quality": video_quality,
+            }
+
+            async def acquire():
+                handle = await self.computer.start_recording(
+                    display["id"], info["path"], fps=fps, video_quality=video_quality
+                )
+                self._recording_handle = handle
+                self._recording_info = info
+
+            startup = asyncio.create_task(acquire())
+            try:
+                await asyncio.shield(startup)
+            except asyncio.CancelledError as cancellation:
+                # A cancelled request may already have acquired a native handle.
+                # Keep the device locked until startup and finalization complete.
+                try:
+                    await finish(startup)
+                    await finish(asyncio.create_task(self._complete_recording()))
+                except Exception as error:
+                    raise cancellation from error
+                raise
+            return self._recording_info.copy()
+
+    async def _complete_recording(self):
+        """Called only with the device lock held; consume the current handle once."""
+        try:
+            result = await self.computer.stop_recording(self._recording_handle)
+            self._recording_info = {
+                **self._recording_info,
+                "state": "completed",
+                "result": {
+                    "path": str(result.path),
+                    "size_bytes": result.size_bytes,
+                    "duration_s": result.duration_s,
+                    "width": result.width,
+                    "height": result.height,
+                    "fps": result.fps,
+                },
+            }
+        except Exception as error:
+            self._recording_info = {
+                **self._recording_info,
+                "state": "failed",
+                "error": str(error),
+            }
+            raise
+        finally:
+            self._recording_handle = None
+
+    async def stop_recording(self, recording_id):
+        async with self.lock:
+            self.require_desktop()
+            if recording_id != self._recording_info.get("recording_id"):
+                raise ValueError(
+                    "Unknown or expired recording_id. Call recording_status for the current recording."
+                )
+            if self._recording_handle is not None:
+                task = asyncio.create_task(self._complete_recording())
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError as cancellation:
+                    try:
+                        await finish(task)
+                    except Exception as error:
+                        raise cancellation from error
+                    raise
+            if self._recording_info["state"] == "failed":
+                raise OSError(self._recording_info["error"])
+            return self._recording_info.copy()
+
+    async def recording_status(self):
+        async with self.lock:
+            self.require_desktop()
+            return self._recording_info.copy()
+
+    async def aclose(self):
+        """Finalize an active recording when the server lifespan ends."""
+
+        async def close():
+            async with self.lock:
+                self._closed = True
+                if self._recording_handle is not None:
+                    await self._complete_recording()
+
+        await finish(asyncio.create_task(close()))
 
     def require_desktop(self, permission: str | None = None) -> None:
         if self.system != "Darwin":

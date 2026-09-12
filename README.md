@@ -41,6 +41,7 @@ uv run --extra mcp scapkit-mcp
 
 客户端连接 `http://127.0.0.1:8000/mcp`；也支持通过
 `python -m scapkit_computer_use_mcp --transport stdio` 由客户端直接启动。
+MCP 也提供 `start_recording`、`stop_recording`、`recording_status`，将视频保存到服务端路径。
 服务自动提供 agent instructions、操作指南 resource 和 prompt，说明权限、工具使用顺序、
 Retina 坐标换算及操作后的验证流程。
 可选 MCP 模块支持常规 Python 3.10+ 和 3.14t；上游 CFFI 不支持 3.13t，

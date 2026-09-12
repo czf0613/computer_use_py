@@ -56,12 +56,21 @@ def package_version() -> str:
 
 def create_server(*, device: Device | None = None) -> MCPServer:
     device = Device() if device is None else device
+
+    @asynccontextmanager
+    async def device_lifespan(server):
+        try:
+            yield
+        finally:
+            await device.aclose()
+
     server = MCPServer(
         "scapkit-computer-use",
         version=package_version(),
         title="Computer Use",
         instructions=agent_guide(),
-        description="Observe and control the host computer with screenshots, mouse, keyboard, clipboard, and subprocess tools.",
+        description="Observe, record and control the host computer with screen/system-audio recording, screenshots, mouse, keyboard, clipboard, and subprocess tools.",
+        lifespan=device_lifespan,
     )
 
     def tool(*, read_only=False):
@@ -136,6 +145,38 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     if device.system != "Darwin":
         return server
+
+    @tool()
+    async def start_recording(
+        output_path: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="New MP4 path on the server computer; parent directory must exist",
+            ),
+        ],
+        display_id: Annotated[int, Field(strict=True, ge=1, le=2**32 - 1)]
+        | None = None,
+        fps: Annotated[int, Field(strict=True, ge=1, le=2**31 - 1)] = 30,
+        video_quality: Annotated[
+            float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)
+        ]
+        | None = 0.75,
+    ) -> dict[str, Any]:
+        """Start recording a display (default main) and system playback audio, never the microphone. Requires macOS 13+, ScreenCapture permission and hardware H.264. Saves H.264/AAC MP4; existing files are never replaced. Quality defaults to 0.75; null keeps encoder defaults, without forcing bitrate. Returns recording_id after the first frame. Only one recording per server; other tools remain available. Always stop_recording when finished; recording_status recovers an ID after disconnect."""
+        return await device.start_recording(output_path, display_id, fps, video_quality)
+
+    @tool()
+    async def stop_recording(
+        recording_id: Annotated[str, Field(min_length=1)],
+    ) -> dict[str, Any]:
+        """Stop this recording and finish the server-local MP4; return path, size_bytes, duration_s, width, height and fps in result. Repeating the same ID returns the saved result until the next recording starts. An older ID cannot stop a newer recording. Does not transfer the video to the client."""
+        return await device.stop_recording(recording_id)
+
+    @tool(read_only=True)
+    async def recording_status() -> dict[str, Any]:
+        """Return idle, recording, completed or failed, plus the current/latest recording_id and settings. Completed includes file metadata; failed includes the finalization error. Use to recover state after a request or connection is interrupted. Does not poll native encoder health or retain history after a new start/server restart."""
+        return await device.recording_status()
 
     @tool(read_only=True)
     async def list_displays() -> list[dict[str, Any]]:

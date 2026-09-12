@@ -45,7 +45,7 @@ uv run pytest tests/test_recording.py tests/test_recording_integration.py tests/
 它编译实际 C 事件构造代码并截留 post/warp，不操作桌面；真实系统状态和窗口焦点
 的验收需要另行准备测试环境。参见 [修饰键生命周期](modifier-lifecycle.md)。
 
-可选 MCP 模块通过 `uv run --extra mcp pytest tests/test_mcp_server.py` 验证。
+可选 MCP 模块通过 `uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py` 验证。
 使用 fake 设备测试协议与操作逻辑，不访问真实桌面。安装和 agent 配置见
 [MCP server](mcp-server.md)。
 

@@ -130,7 +130,7 @@ jobs:
           free_threaded = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
           if free_threaded:
               assert not sys._is_gil_enabled()
-          result = pytest.main(['-q', 'tests/test_mcp_server.py'])
+          result = pytest.main(['-q', 'tests/test_mcp_server.py', 'tests/test_mcp_recording.py'])
           if free_threaded:
               assert not sys._is_gil_enabled(), 'Importing/running MCP enabled the GIL'
           raise SystemExit(result)
