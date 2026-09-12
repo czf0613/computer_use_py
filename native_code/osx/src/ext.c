@@ -16,6 +16,12 @@ static PyMethodDef ScapkitMethods[] = {
     {"stop_capture", scapkit_stop_capture, METH_VARARGS, NULL},
     {"current_frame_jpg", scapkit_current_frame_jpg, METH_VARARGS, NULL},
     {"current_frame_bgra", scapkit_current_frame_bgra, METH_VARARGS, NULL},
+#ifdef SCAPKIT_TESTING
+    {"_test_capture", scapkit_test_capture, METH_VARARGS, NULL},
+    {"_test_update_frame", scapkit_test_update_frame, METH_VARARGS, NULL},
+    {"_test_live_frames", scapkit_test_live_frames, METH_NOARGS, NULL},
+    {"_test_lifecycle_stats", scapkit_test_lifecycle_stats, METH_NOARGS, NULL},
+#endif
     {NULL, NULL, 0, NULL}};
 
 static struct PyModuleDef scapkit_module = {
@@ -28,5 +34,17 @@ static struct PyModuleDef scapkit_module = {
 PyMODINIT_FUNC
 PyInit__scapkit(void)
 {
-    return PyModule_Create(&scapkit_module);
+    PyObject *module = PyModule_Create(&scapkit_module);
+    if (!module)
+    {
+        return NULL;
+    }
+#ifdef Py_GIL_DISABLED
+    if (PyUnstable_Module_SetGIL(module, Py_MOD_GIL_NOT_USED) < 0)
+    {
+        Py_DECREF(module);
+        return NULL;
+    }
+#endif
+    return module;
 }

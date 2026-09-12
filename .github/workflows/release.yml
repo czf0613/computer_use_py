@@ -1,0 +1,255 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    # Validate the release commit, including synthetic tests, on both macOS versions.
+    uses: ./.github/workflows/ci.yml
+
+  build-sdist:
+    name: Build and validate source distribution
+    runs-on: macos-15
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      ARCHFLAGS: '-arch arm64'
+      SCAPKIT_TESTING: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          architecture: arm64
+      - name: Verify the release tag matches the package version
+        id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import platform
+          import tomllib
+          from pathlib import Path
+
+          assert platform.machine() == 'arm64', platform.machine()
+          project = tomllib.loads(Path('pyproject.toml').read_text())['project']
+          version = project['version']
+          tag = os.environ['RELEASE_TAG']
+          assert tag in (version, f'v{version}'), f'Release tag {tag!r} does not match {version!r}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+          PY
+      - name: Build sdist without test hooks
+        shell: bash
+        run: |
+          python -m pip install 'build>=1.2.2,<2' 'twine>=6.1,<7'
+          python -m build --sdist --outdir dist
+          python -m twine check --strict dist/*
+      - name: Check native sources, type information, and metadata in the sdist
+        shell: bash
+        run: |
+          python - <<'PY'
+          import tarfile
+          from email.parser import BytesParser
+          from pathlib import Path, PurePosixPath
+
+          archives = list(Path('dist').glob('*.tar.gz'))
+          assert len(archives) == 1, archives
+          required = {'setup.py', 'pyproject.toml', 'README.md', 'LICENSE'}
+          for root in ('native_code/osx', 'src'):
+              for path in Path(root).rglob('*'):
+                  if path.suffix in ('.c', '.h', '.m', '.py', '.pyi') or path.name == 'py.typed':
+                      required.add(path.as_posix())
+          with tarfile.open(archives[0]) as archive:
+              members = {PurePosixPath(member.name).relative_to(PurePosixPath(member.name).parts[0]).as_posix(): member
+                         for member in archive.getmembers() if member.isfile()}
+              assert required <= members.keys(), f'Missing sdist files: {required - members.keys()}'
+              assert not any(name.startswith('tests/') for name in members), 'Test helpers leaked into sdist'
+              metadata = BytesParser().parsebytes(archive.extractfile(members['PKG-INFO']).read())
+              assert metadata['Requires-Python'] == '>=3.10'
+              assert metadata['License-Expression'] == 'MIT'
+          print(f'Validated {archives[0].name}: complete sources, no tests, Python >=3.10, MIT')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pypi-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-wheels:
+    name: Build seven arm64 wheels from the sdist
+    needs: build-sdist
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      ARCHFLAGS: '-arch arm64'
+      SCAPKIT_TESTING: '0'
+      EXPECTED_VERSION: ${{ needs.build-sdist.outputs.version }}
+      CIBW_ARCHS_MACOS: arm64
+      CIBW_BUILD: >-
+        cp310-macosx_arm64 cp311-macosx_arm64 cp312-macosx_arm64
+        cp313-macosx_arm64 cp314-macosx_arm64 cp313t-macosx_arm64 cp314t-macosx_arm64
+      CIBW_ENABLE: cpython-freethreading
+      CIBW_ENVIRONMENT_MACOS: 'MACOSX_DEPLOYMENT_TARGET=15.0 SCAPKIT_TESTING=0'
+      # Import only: never enumerate displays, request permissions, or post input.
+      CIBW_TEST_COMMAND: >-
+        python -c "import sys, sysconfig; from scapkit_computer_use.screen_capture_kit import _scapkit;
+        assert not any(name.startswith('_test_') for name in dir(_scapkit));
+        assert not sysconfig.get_config_var('Py_GIL_DISABLED') or not sys._is_gil_enabled()"
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          architecture: arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-sdist
+          path: incoming
+      - name: Build and smoke-test wheels without test hooks
+        shell: bash
+        run: |
+          python -c "import platform; assert platform.machine() == 'arm64'"
+          # Keep CPython 3.13t support; upgrade only after checking its build identifiers.
+          python -m pip install 'cibuildwheel==3.4.1' 'twine>=6.1,<7'
+          python -m cibuildwheel incoming/*.tar.gz --platform macos --output-dir dist
+          python -m twine check --strict dist/*
+      - name: Validate the complete wheel set and deployment tags
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tempfile
+          import zipfile
+          from email.parser import BytesParser
+          from pathlib import Path
+          from packaging.tags import Tag
+          from packaging.utils import parse_wheel_filename
+          from packaging.version import Version
+
+          expected = {Tag(f'cp{minor}', f'cp{minor}', 'macosx_15_0_arm64')
+                      for minor in ('310', '311', '312', '313', '314')}
+          expected |= {Tag(f'cp{minor}', f'cp{minor}t', 'macosx_15_0_arm64')
+                       for minor in ('313', '314')}
+          wheels = sorted(Path('dist').glob('*.whl'))
+          assert len(wheels) == 7, wheels
+          found = set()
+          for wheel in wheels:
+              name, version, _, tags = parse_wheel_filename(wheel.name)
+              assert name == 'scapkit-computer-use', name
+              assert version == Version(os.environ['EXPECTED_VERSION']), version
+              assert len(tags) == 1 and tags <= expected, wheel.name
+              assert not found.intersection(tags), f'Duplicate ABI: {wheel.name}'
+              found.update(tags)
+              with zipfile.ZipFile(wheel) as archive:
+                  names = archive.namelist()
+                  assert any(name.endswith('.so') for name in names), wheel.name
+                  assert any(name.endswith('/_scapkit.pyi') for name in names), wheel.name
+                  assert any(name.endswith('/py.typed') for name in names), wheel.name
+                  assert not any(name.startswith('tests/') for name in names), wheel.name
+                  metadata_path, = [name for name in names if name.endswith('.dist-info/METADATA')]
+                  metadata = BytesParser().parsebytes(archive.read(metadata_path))
+                  assert metadata['Requires-Python'] == '>=3.10', wheel.name
+                  assert metadata['License-Expression'] == 'MIT', wheel.name
+                  # Wheel tags alone do not prove the native linker used the target.
+                  for native_path in (name for name in names if name.endswith('.so')):
+                      with tempfile.TemporaryDirectory() as directory:
+                          binary = Path(directory) / Path(native_path).name
+                          binary.write_bytes(archive.read(native_path))
+                          archs = subprocess.check_output(['xcrun', 'lipo', '-archs', str(binary)], text=True).strip()
+                          assert archs == 'arm64', f'{wheel.name}: {archs}'
+                          load_commands = subprocess.check_output(['xcrun', 'vtool', '-show-build', str(binary)], text=True)
+                          assert re.search(r'^\s*platform MACOS\s*$', load_commands, re.MULTILINE), load_commands
+                          assert re.search(r'^\s*minos 15\.0(?:\.0)?\s*$', load_commands, re.MULTILINE), load_commands
+          assert found == expected, f'Missing ABIs: {expected - found}'
+          print('Validated all seven macosx_15_0_arm64 wheels')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pypi-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  test-wheels-macos-26:
+    name: macOS 26 / release wheel / Python ${{ matrix.python }}
+    needs: [build-sdist, build-wheels]
+    runs-on: macos-26
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.13t', '3.14t']
+    env:
+      EXPECTED_VERSION: ${{ needs.build-sdist.outputs.version }}
+      PYTHON_VARIANT: ${{ matrix.python }}
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-wheels
+          path: dist
+      - name: Install the release wheel and check import safety
+        shell: bash
+        run: |
+          python -m pip install --no-index --no-deps --only-binary=:all: --find-links=dist "scapkit_computer_use==$EXPECTED_VERSION"
+          python - <<'PY'
+          import os
+          import platform
+          import sys
+          import sysconfig
+
+          assert platform.machine() == 'arm64', platform.machine()
+          expected_free_threading = os.environ['PYTHON_VARIANT'].endswith('t')
+          assert bool(sysconfig.get_config_var('Py_GIL_DISABLED')) == expected_free_threading
+          from scapkit_computer_use.screen_capture_kit import _scapkit
+
+          assert not any(name.startswith('_test_') for name in dir(_scapkit))
+          if expected_free_threading:
+              assert not sys._is_gil_enabled(), 'Importing the release wheel enabled the GIL'
+          print(f'Release wheel imported safely: {sys.version}')
+          PY
+
+  publish:
+    name: Publish validated distributions through PyPI Trusted Publishing
+    needs: [checks, build-sdist, build-wheels, test-wheels-macos-26]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/scapkit-computer-use
+    permissions:
+      id-token: write
+    steps:
+      # No checkout, package installation, or build code runs with the OIDC permission.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-sdist
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-wheels
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+          attestations: true

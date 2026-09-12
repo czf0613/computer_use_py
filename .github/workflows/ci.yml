@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-tests:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }} / arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # These are the standard Apple Silicon runners, without Intel variants.
+        os: [macos-15, macos-26]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.13t', '3.14t']
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      ARCHFLAGS: '-arch arm64'
+      CFLAGS: '-Werror'
+      SCAPKIT_TESTING: '1'
+      PYTHONFAULTHANDLER: '1'
+      PYTHON_VARIANT: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: arm64
+      - name: Check interpreter and Python syntax without importing the package
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import platform
+          import sys
+          import sysconfig
+          from pathlib import Path
+
+          assert platform.machine() == 'arm64', platform.machine()
+          expected_free_threading = os.environ['PYTHON_VARIANT'].endswith('t')
+          assert bool(sysconfig.get_config_var('Py_GIL_DISABLED')) == expected_free_threading
+          if expected_free_threading:
+              assert not sys._is_gil_enabled()
+          sources = [Path('setup.py')]
+          for root in (Path('src'), Path('tests')):
+              sources.extend(root.rglob('*.py'))
+              sources.extend(root.rglob('*.pyi'))
+          for source in sorted(sources):
+              compile(source.read_bytes(), str(source), 'exec', dont_inherit=True)
+          print(f'Checked {len(sources)} Python files with {sys.version}')
+          PY
+      - name: Check native syntax and API availability for source and wheel targets
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sysconfig
+          from pathlib import Path
+
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
+          flags = [
+              '-fsyntax-only', '-std=c11', '-fblocks', '-arch', 'arm64',
+              '-isysroot', sdk, '-DPY_SSIZE_T_CLEAN',
+              '-Werror', '-Werror=unguarded-availability',
+              '-Inative_code/osx/include',
+          ]
+          for key in ('include', 'platinclude'):
+              flags.append('-I' + sysconfig.get_path(key))
+          sources = sorted(Path('native_code/osx/src').glob('*'))
+          for target in ('12.3', '15.0'):
+              for testing in (False, True):
+                  for source in sources:
+                      if source.suffix not in ('.c', '.m'):
+                          continue
+                      extra = [f'-mmacosx-version-min={target}']
+                      if testing:
+                          extra.append('-DSCAPKIT_TESTING=1')
+                      if source.suffix == '.m':
+                          extra.append('-fobjc-arc')
+                      print(f'Checking {source}, target={target}, testing={testing}', flush=True)
+                      subprocess.run(['xcrun', 'clang', *flags, *extra, str(source)], check=True)
+          PY
+      - name: Install test tools and build from checkout with synthetic hooks
+        shell: bash
+        env:
+          # Exercise the declared backend minimum on the oldest supported Python.
+          SETUPTOOLS_REQUIREMENT: ${{ matrix.python == '3.10' && 'setuptools==77.0.3' || 'setuptools>=77.0.3' }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$SETUPTOOLS_REQUIREMENT" 'pytest>=9.0.3' 'pytest-asyncio>=1.3.0'
+          python -m pip install --no-build-isolation --no-deps .
+      - name: Run only tests that never capture the desktop or post input events
+        shell: bash
+        run: |
+          python -m pytest -q \
+            tests/test_native_capture.py \
+            tests/test_capture_lifecycle.py \
+            tests/test_native_arguments.py \
+            tests/test_native_validation.py \
+            tests/test_async_safety.py

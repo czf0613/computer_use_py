@@ -6,19 +6,28 @@ readme = "README.md"
 keywords = ["computer use", "automation"]
 authors = [{ name = "Kevin Chen", email = "1354016594@qq.com" }]
 license = "MIT"
-requires-python = ">=3.11"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
 classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: C",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
 ]
 
 [project.urls]
 Home-page = "https://github.com/czf0613/computer_use_py"
 
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+# SPDX license expressions need setuptools 77; 77.0.3 supports Python >=3.9.
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -30,7 +39,7 @@ include-package-data = true
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
-    "setuptools>=82.0.0",
+    "setuptools>=77.0.3",
 ]
 
 [tool.pytest.ini_options]

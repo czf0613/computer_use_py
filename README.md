@@ -2,15 +2,26 @@
 
 跨平台桌面自动化 Python 库，提供屏幕截图、鼠标控制、键盘输入和剪贴板操作。
 
-当前支持 macOS，Windows 支持开发中。
+当前支持 macOS；所用 ScreenCaptureKit API 的最低系统版本为 macOS 12.3。
+官方预编译 wheel 仅提供 macOS 15+ arm64 版本，这不是源码安装的系统或架构限制。
+Windows 支持开发中。
 
 ## 安装
 
-需要 Python >= 3.11，通过 PyPI 安装：
+需要 Python >= 3.10；支持 CPython 3.13/3.14 的 free-threaded 构建，通过 PyPI 安装：
 
 ```bash
 pip install scapkit_computer_use
 ```
+
+较早的 macOS（12.3+）或 Intel Mac 可从源码构建，需要安装 Xcode Command Line
+Tools，并使用包含 ScreenCaptureKit 的 macOS SDK：
+
+```bash
+pip install --no-binary=scapkit_computer_use scapkit_computer_use
+```
+
+旧系统和 Intel Mac 的实际运行尚未验证；当前 CI 运行环境为 macOS 15 / 26 arm64。
 
 或使用 [uv](https://github.com/astral-sh/uv)：
 
@@ -147,9 +158,17 @@ await stop_capture(handle)
 # 构建 C 扩展
 uv run setup.py build_ext --inplace
 
-# 运行测试
-uv run pytest tests/test_mouse.py -v -s
+# 构建带合成测试支持的扩展，运行不操作桌面的测试
+SCAPKIT_TESTING=1 uv run setup.py build_ext --inplace --force
+uv run pytest tests/test_native_validation.py tests/test_native_arguments.py tests/test_native_capture.py tests/test_capture_lifecycle.py tests/test_async_safety.py
 ```
+
+构建环境、并发约定和测试边界见 [开发文档](https://github.com/czf0613/computer_use_py/blob/master/docs/development.md)，
+自动化发布见 [发布文档](https://github.com/czf0613/computer_use_py/blob/master/docs/releasing.md)，Codex 接手约定见 [AGENTS.md](https://github.com/czf0613/computer_use_py/blob/master/AGENTS.md)，
+本次质量检查和验证边界见 [审查记录](https://github.com/czf0613/computer_use_py/blob/master/docs/code-review.md)。
+
+`stop_capture()` 可以重复调用；停止后的新读帧返回 `None`。启动/停止超时抛出
+`TimeoutError`。多线程读取和停止同一句柄受原生同步保护，但多步键鼠操作需要调用方串行安排。
 
 ## 许可证
 

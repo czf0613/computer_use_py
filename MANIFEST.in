@@ -3,9 +3,10 @@ include README.md
 include pyproject.toml
 include setup.py
 
-recursive-include native_code *.c *.h
+recursive-include native_code/osx *.c *.h *.m
+recursive-include src *.pyi py.typed
 
-exclude CLAUDE.md
+exclude AGENTS.md
 exclude .gitignore
 prune .venv
 prune .github

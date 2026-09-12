@@ -38,13 +38,26 @@ class Vector2D(TypedDict):
 
 @final
 class CaptureHandle(ABC):
-    """Opaque handle returned by start_capture (PyCapsule)."""
+    """Opaque native PyCapsule returned by start_capture, not constructed in Python.
+
+    Dropping the last reference automatically stops capture and releases native
+    resources. Use stop_capture for explicit shutdown: it is idempotent, rejects
+    subsequent frames, and makes later frame reads return None. Reads already in
+    progress may still return a retained frame. Concurrent native calls preserve
+    memory safety, including on free-threaded CPython.
+    """
 
     pass
 
 
 @final
 class BGRAPack(TypedDict):
+    """Copied BGRA pixels, independent of capture lifetime.
+
+    Dimensions are in pixels. bytes_per_row is the stride, including any padding;
+    data contains bytes_per_row * height bytes.
+    """
+
     data: bytes
     width: int
     height: int

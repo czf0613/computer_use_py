@@ -1,3 +1,10 @@
+"""Async computer input and screen capture helpers.
+
+Native calls are memory-safe under concurrent use, including free-threaded
+CPython. Compound input operations are not transactions: callers must serialize
+overlapping input sequences to avoid interleaved mouse and keyboard events.
+"""
+
 from ._scapkit import (
     get_mouse_position,
     move_mouse as move_mouse_c,
@@ -15,6 +22,7 @@ from .types import Point2D, Vector2D, CaptureHandle, BGRAPack
 from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 import asyncio
 from asyncio import subprocess
+from math import isfinite
 
 
 def _resolve_key(key: str) -> int:
@@ -111,15 +119,24 @@ async def move_mouse_relative(
 async def mouse_long_click(key: Literal["left", "right"], duration_s: float) -> None:
     """Press and hold a mouse button for a specified duration, then release.
 
+    Once the button is pressed, release is attempted even on cancellation or
+    failure. Callers must serialize overlapping input sequences.
+
     Args:
         key: "left" or "right" mouse button.
-        duration_s: How long to hold the button in seconds (must be > 0).
+        duration_s: How long to hold the button in seconds (finite and > 0).
+
+    Raises:
+        ValueError: If duration_s is non-finite or not greater than zero.
     """
-    assert duration_s > 0
+    if not isfinite(duration_s) or duration_s <= 0:
+        raise ValueError("duration_s must be finite and greater than zero")
 
     mouse_click_action(key, "down")
-    await asyncio.sleep(duration_s)
-    mouse_click_action(key, "up")
+    try:
+        await asyncio.sleep(duration_s)
+    finally:
+        mouse_click_action(key, "up")
 
 
 async def mouse_click(key: Literal["left", "right"]) -> None:
@@ -134,14 +151,19 @@ async def mouse_click(key: Literal["left", "right"]) -> None:
 async def mouse_drag(dest: Point2D) -> None:
     """Drag from the current position to a destination (left-button hold + smooth move + release).
 
+    Once the button is pressed, release is attempted even if movement fails or
+    the operation is cancelled. Callers must serialize overlapping input sequences.
+
     Args:
         dest: Target position {"x": int, "y": int} in point coordinates.
     """
     mouse_click_action("left", "down")
-    await asyncio.sleep(0.05)
-    await move_mouse(dest)
-    await asyncio.sleep(0.05)
-    mouse_click_action("left", "up")
+    try:
+        await asyncio.sleep(0.05)
+        await move_mouse(dest)
+        await asyncio.sleep(0.05)
+    finally:
+        mouse_click_action("left", "up")
 
 
 async def mouse_scroll(
@@ -186,6 +208,9 @@ async def keyboard_click(
 ) -> None:
     """Press and release a keyboard key (key-down, short delay, key-up).
 
+    Once the key is pressed, release with the same modifiers is attempted even
+    on cancellation or failure. Callers must serialize overlapping input sequences.
+
     Args:
         key: Named key (e.g. "a", "return"). See keys.KEY_CODES for valid names.
         modifiers: Optional set of modifier keys (e.g. {"command", "shift"}).
@@ -193,8 +218,10 @@ async def keyboard_click(
     flags = _resolve_flags(modifiers)
     code = _resolve_key(key)
     keyboard_click_c(code, "down", flags)
-    await asyncio.sleep(0.01)
-    keyboard_click_c(code, "up", flags)
+    try:
+        await asyncio.sleep(0.01)
+    finally:
+        keyboard_click_c(code, "up", flags)
 
 
 async def key_combo(key: str, modifiers: set[MODIFIER]) -> None:
@@ -238,35 +265,67 @@ async def clipboard_paste() -> None:
 async def start_capture(display_id: int) -> CaptureHandle:
     """Start capturing a display via ScreenCaptureKit. Returns an opaque handle.
 
+    Cancellation does not interrupt native startup in the worker thread. If it
+    completes after cancellation, the unclaimed handle is dropped and its native
+    capsule destructor stops capture and releases resources automatically.
+
     Args:
         display_id: The display ID from list_displays() (CGDirectDisplayID).
+
+    Raises:
+        ValueError: If display_id is not found.
+        OSError: If display lookup or stream startup fails.
+        TimeoutError: If display lookup or stream startup times out.
     """
+    # Keep ownership in the worker result so cancellation can discard the capsule.
     return await asyncio.to_thread(start_capture_c, display_id)
 
 
 async def stop_capture(handle: CaptureHandle) -> None:
-    """Stop an active screen capture and release resources.
+    """Idempotently stop capture and discard the buffered frame.
+
+    Once native stop closes the handle, later frames are rejected and subsequent
+    frame reads return None. A read already in progress may return its retained
+    frame. Repeated stops are safe, including after a stop error or timeout; the
+    handle remains closed even if the native stream reports either failure.
 
     Args:
         handle: The handle returned by start_capture.
+
+    Raises:
+        OSError: If stopping the native stream fails.
+        TimeoutError: If stopping the native stream times out.
     """
     await asyncio.to_thread(stop_capture_c, handle)
 
 
 async def current_frame_jpg(handle: CaptureHandle, quality: int = 80) -> bytes | None:
-    """Get the latest captured frame as JPEG bytes. Returns None if no frame yet.
+    """Get the latest frame as JPEG bytes, or None before a frame or after stop.
+
+    A read already in progress when stop closes the handle may finish encoding
+    its retained frame. The stopped handle accepts no new frames.
 
     Args:
         handle: The handle returned by start_capture.
-        quality: JPEG quality 0-100 (default 80).
+        quality: JPEG quality from 0 through 100 inclusive (default 80).
+
+    Raises:
+        ValueError: If quality is outside 0..100, even when no frame is available.
+        OSError: If pixel-buffer access or JPEG encoding fails.
     """
     return await asyncio.to_thread(current_frame_jpg_c, handle, quality)
 
 
 async def current_frame_bgra(handle: CaptureHandle) -> BGRAPack | None:
-    """Get the latest captured frame as raw BGRA pixel data. Returns None if no frame yet.
+    """Get a copy of the latest BGRA frame, or None before a frame or after stop.
+
+    A read already in progress when stop closes the handle may finish copying
+    its retained frame. The stopped handle accepts no new frames.
 
     Args:
         handle: The handle returned by start_capture.
+
+    Raises:
+        OSError: If pixel-buffer access fails.
     """
     return await asyncio.to_thread(current_frame_bgra_c, handle)

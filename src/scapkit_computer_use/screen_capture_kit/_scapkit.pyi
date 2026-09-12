@@ -1,3 +1,9 @@
+"""Native bindings, memory-safe under concurrent and free-threaded use.
+
+Input event sequences are not transactions. Callers must serialize compound
+mouse and keyboard operations to prevent interleaving.
+"""
+
 from typing import Literal
 from .types import CaptureHandle, BGRAPack, Point2D, DisplayInfo
 
@@ -139,49 +145,68 @@ def start_capture(display_id: int) -> CaptureHandle:
     frames at 30 FPS in BGRA format. Returns an opaque handle used by
     stop_capture, current_frame_jpg, and current_frame_bgra.
 
+    Dropping the last reference stops capture and releases native resources,
+    including when an async caller cancels and abandons a worker's result.
+
     Args:
         display_id: The CGDirectDisplayID (from list_displays()["id"]).
 
     Raises:
         OSError: If SCShareableContent lookup or stream start fails.
         ValueError: If the display_id is not found.
+        TimeoutError: If SCShareableContent lookup or stream start times out.
 
     Requires Screen Recording permission on macOS.
     """
     ...
 
 def stop_capture(handle: CaptureHandle) -> None:
-    """Stop an active screen capture and release resources.
+    """Idempotently stop capture and discard its buffered frame.
+
+    The closed handle rejects new frames and subsequent frame reads return None.
+    Reads already in progress may still finish with a retained frame. Repeated
+    stops are safe. The handle stays closed even if stream stop fails or times out.
 
     Args:
         handle: The handle returned by start_capture.
 
     Raises:
         OSError: If stopping the stream fails.
+        TimeoutError: If stopping the stream times out.
     """
     ...
 
 def current_frame_jpg(handle: CaptureHandle, quality: int = 80) -> bytes | None:
     """Get the latest captured frame as JPEG-encoded bytes.
 
-    Returns None if no frame has been captured yet.
+    Returns None if no frame has been captured yet or the handle is stopped.
+    A read already in progress may finish with a retained frame after stop;
+    the stopped handle accepts no new frames.
 
     Args:
         handle: The handle returned by start_capture.
-        quality: JPEG quality 0-100 (default 80).
+        quality: JPEG quality from 0 through 100 inclusive (default 80).
 
     Raises:
-        OSError: If JPEG encoding fails.
+        ValueError: If quality is outside 0..100, even when no frame is available.
+        OSError: If pixel-buffer access or JPEG encoding fails.
     """
     ...
 
 def current_frame_bgra(handle: CaptureHandle) -> BGRAPack | None:
     """Get the latest captured frame as raw BGRA pixel data.
 
-    Returns None if no frame has been captured yet. Otherwise returns a dict:
+    Returns None if no frame has been captured yet or the handle is stopped.
+    A read already in progress may finish with a retained frame after stop;
+    the stopped handle accepts no new frames. Otherwise returns a dict:
         - "data": bytes — raw BGRA pixel buffer
         - "width": int — frame width in pixels
         - "height": int — frame height in pixels
         - "bytes_per_row": int — stride (may include padding)
+
+    The bytes are a copy and remain valid after capture stops.
+
+    Raises:
+        OSError: If pixel-buffer access fails.
     """
     ...
