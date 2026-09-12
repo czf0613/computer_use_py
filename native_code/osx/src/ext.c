@@ -28,6 +28,7 @@ static PyMethodDef ScapkitMethods[] = {
     {"_test_recording_tick", scapkit_test_recording_tick, METH_VARARGS, NULL},
     {"_test_stop_recording_at", scapkit_test_stop_recording_at, METH_VARARGS, NULL},
     {"_test_recording_owners", scapkit_test_recording_owners, METH_NOARGS, NULL},
+    {"_test_recording_stop_gate", scapkit_test_recording_stop_gate, METH_VARARGS, NULL},
     {"_test_recording_state", scapkit_test_recording_state, METH_VARARGS, NULL},
     {"_test_recording_audio", scapkit_test_recording_audio, METH_VARARGS, NULL},
     {"_test_capture", scapkit_test_capture, METH_VARARGS, NULL},

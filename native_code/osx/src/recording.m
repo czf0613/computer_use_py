@@ -7,6 +7,9 @@
 #include <limits.h>
 #include <math.h>
 #ifdef SCAPKIT_TESTING
+// Controlled stop completions make ownership tests independent of timer speed.
+// Access only while synchronized on ScapkitRecorder's class object.
+static NSMutableArray *recording_test_stop_callbacks;
 #include <stdatomic.h>
 #import <AudioToolbox/AudioToolbox.h>
 static _Atomic long recording_live_owners = 0;
@@ -480,7 +483,21 @@ static CMTime recording_now(void)
             };
             NSTimeInterval stopTimeout = 5;
 #ifdef SCAPKIT_TESTING
-            if (self->synthetic && [self->testMode isEqualToString:@"stop_delayed"])
+            if (self->synthetic && [self->testMode isEqualToString:@"stop_gated"])
+            {
+                @synchronized([ScapkitRecorder class])
+                {
+                    if (!recording_test_stop_callbacks)
+                    {
+                        recording_test_stop_callbacks = [NSMutableArray array];
+                    }
+                    [recording_test_stop_callbacks addObject:[completed copy]];
+                }
+                // The test releases this completion explicitly. A timeout would
+                // bypass the gate if its Python thread is paused by the runner.
+                return;
+            }
+            else if (self->synthetic && [self->testMode isEqualToString:@"stop_delayed"])
             {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC),
                                dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ completed(nil); });

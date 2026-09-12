@@ -79,7 +79,7 @@ PyObject *scapkit_test_recording(PyObject *self, PyObject *args)
             return NULL;
         }
         NSString *testMode = [NSString stringWithUTF8String:mode];
-        if (![@[@"normal", @"realtime", @"first_frame_timeout", @"stream_error", @"stop_error", @"stop_timeout", @"stop_delayed", @"finish_timeout", @"publish_handoff_timeout"] containsObject:testMode])
+        if (![@[@"normal", @"realtime", @"first_frame_timeout", @"stream_error", @"stop_error", @"stop_timeout", @"stop_delayed", @"stop_gated", @"finish_timeout", @"publish_handoff_timeout"] containsObject:testMode])
         {
             PyErr_SetString(PyExc_ValueError, "invalid synthetic recording mode");
             return NULL;
@@ -222,6 +222,36 @@ PyObject *scapkit_test_stop_recording_at(PyObject *self, PyObject *args)
 PyObject *scapkit_test_recording_owners(PyObject *self, PyObject *unused)
 {
     return PyLong_FromLong(atomic_load(&recording_live_owners));
+}
+
+PyObject *scapkit_test_recording_stop_gate(PyObject *self, PyObject *args)
+{
+    int release;
+    if (!PyArg_ParseTuple(args, "p:_test_recording_stop_gate", &release))
+    {
+        return NULL;
+    }
+    @autoreleasepool
+    {
+        NSUInteger count;
+        Py_BEGIN_ALLOW_THREADS
+        NSArray *callbacks = nil;
+        @synchronized([ScapkitRecorder class])
+        {
+            count = recording_test_stop_callbacks.count;
+            if (release)
+            {
+                callbacks = [recording_test_stop_callbacks copy];
+                [recording_test_stop_callbacks removeAllObjects];
+            }
+        }
+        for (void (^completed)(NSError *) in callbacks)
+        {
+            completed(nil);
+        }
+        Py_END_ALLOW_THREADS
+        return PyLong_FromSize_t(count);
+    }
 }
 
 PyObject *scapkit_test_recording_state(PyObject *self, PyObject *args)

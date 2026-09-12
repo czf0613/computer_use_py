@@ -10,6 +10,7 @@ PyObject *scapkit_test_recording(PyObject *self, PyObject *args);
 PyObject *scapkit_test_recording_tick(PyObject *self, PyObject *args);
 PyObject *scapkit_test_stop_recording_at(PyObject *self, PyObject *args);
 PyObject *scapkit_test_recording_owners(PyObject *self, PyObject *unused);
+PyObject *scapkit_test_recording_stop_gate(PyObject *self, PyObject *args);
 PyObject *scapkit_test_recording_state(PyObject *self, PyObject *args);
 PyObject *scapkit_test_recording_audio(PyObject *self, PyObject *args);
 #endif

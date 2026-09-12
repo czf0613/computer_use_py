@@ -116,12 +116,18 @@ def test_destructor_retains_cleanup_owner_until_delayed_stream_stop(tmp_path):
         time.sleep(0.01)
     assert native._test_recording_owners() == 0
     before = native._test_recording_owners()
-    handle = make_recording(tmp_path / "delayed.mp4", mode="stop_delayed")
+    handle = make_recording(tmp_path / "delayed.mp4", mode="stop_gated")
     native._test_recording_tick(handle, 100_000_000)
     del handle
     gc.collect()
-    time.sleep(0.02)
-    assert native._test_recording_owners() == before + 1
+    try:
+        deadline = time.monotonic() + 3
+        while not native._test_recording_stop_gate(False):
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        assert native._test_recording_owners() == before + 1
+    finally:
+        native._test_recording_stop_gate(True)
     deadline = time.monotonic() + 3
     while native._test_recording_owners() != before and time.monotonic() < deadline:
         time.sleep(0.01)
