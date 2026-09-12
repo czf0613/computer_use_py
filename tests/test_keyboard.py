@@ -1,3 +1,6 @@
+import asyncio
+import ctypes
+
 import pytest
 from scapkit_computer_use import (
     keyboard_click,
@@ -44,3 +47,36 @@ def test_keyboard_click_action_down_up():
 def test_keyboard_click_invalid_key():
     with pytest.raises(ValueError, match="unknown key name"):
         keyboard_click_action("nonexistent_key", "down")
+
+
+@pytest.mark.asyncio
+async def test_keyboard_without_modifiers_clears_previous_flags():
+    """Desktop integration: an unmodified key must not inherit Command."""
+    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    cg.CGEventSourceFlagsState.argtypes = [ctypes.c_int]
+    cg.CGEventSourceFlagsState.restype = ctypes.c_uint64
+    cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+    cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+    cg.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    cg.CGEventSetFlags.restype = None
+    cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    cg.CGEventPost.restype = None
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    cf.CFRelease.restype = None
+    command_mask = 1 << 20
+
+    try:
+        await keyboard_click("a", {"command"})
+        await asyncio.sleep(0.1)
+        assert cg.CGEventSourceFlagsState(0) & command_mask, "Command event was not delivered"
+        await keyboard_click("b")
+        await asyncio.sleep(0.1)
+        assert cg.CGEventSourceFlagsState(0) & command_mask == 0
+    finally:
+        # Also restore the system state when running against the broken extension.
+        event = cg.CGEventCreateKeyboardEvent(None, 11, False)
+        if event:
+            cg.CGEventSetFlags(event, 0)
+            cg.CGEventPost(0, event)
+            cf.CFRelease(event)

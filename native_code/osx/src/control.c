@@ -266,10 +266,9 @@ PyObject *scapkit_keyboard_click(PyObject *self, PyObject *args)
         PyErr_SetString(PyExc_OSError, "CGEventCreateKeyboardEvent failed");
         return NULL;
     }
-    if (flags)
-    {
-        CGEventSetFlags(event, (CGEventFlags)flags);
-    }
+    // A NULL event source inherits session flags, including a previous shortcut.
+    // Zero is an explicit request for an unmodified key, not "leave defaults".
+    CGEventSetFlags(event, (CGEventFlags)flags);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 
