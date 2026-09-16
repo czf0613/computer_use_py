@@ -44,6 +44,7 @@ uv run --extra mcp scapkit-mcp
 
 客户端连接 `http://127.0.0.1:8000/mcp`；也支持通过
 `python -m scapkit_computer_use_mcp --transport stdio` 由客户端直接启动。
+调用方先使用 `system_info` 查询服务端操作系统、坐标单位和 subprocess 的路径、编码及 shell 用法。
 MCP 也提供 `start_recording`、`stop_recording`、`recording_status`，将视频保存到服务端路径。
 服务自动提供 agent instructions、操作指南 resource 和 prompt，说明权限、工具使用顺序、
 Retina 坐标换算及操作后的验证流程。
@@ -71,7 +72,8 @@ if not check_permission("Accessibility"):
 
 ### 显示器信息
 
-所有坐标和尺寸均使用 **point**（逻辑分辨率），而非物理像素。物理像素 = point × scale_factor。API 中的所有位置参数（鼠标移动、点击等）同样使用 point 坐标。
+macOS 的坐标和尺寸使用 **point**（逻辑分辨率），物理像素 = point × scale_factor；
+Windows 使用**物理像素**。API 中的鼠标移动、点击等位置参数采用对应平台的全局坐标单位。
 
 ```python
 from scapkit_computer_use import list_displays

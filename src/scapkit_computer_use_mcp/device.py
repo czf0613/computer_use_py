@@ -10,6 +10,8 @@ import anyio
 
 import scapkit_computer_use
 
+from .system import coordinate_unit, system_info
+
 
 async def finish(task):
     """Finish releasing resources despite asyncio or AnyIO cancellation."""
@@ -207,6 +209,9 @@ class Device:
                 "in macOS System Settings > Privacy & Security, then retry. No permission was requested automatically."
             )
 
+    async def system_info(self) -> dict:
+        return await asyncio.to_thread(system_info, self.system)
+
     async def info(self) -> dict:
         async with self.lock:
             permissions = None
@@ -225,7 +230,7 @@ class Device:
 
     @property
     def coordinate_unit(self):
-        return "physical_pixel" if self.system == "Windows" else "global display points"
+        return coordinate_unit(self.system)
 
     async def invoke(self, name, *args, permission=None, **kwargs):
         async with self.lock:

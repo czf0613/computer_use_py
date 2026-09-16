@@ -95,7 +95,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
     @server.resource(
         "computer://guide",
         mime_type="text/markdown",
-        description="Device workflow, Retina coordinate mapping, permissions and command semantics",
+        description="Host OS, device workflow, coordinate mapping, permissions and command semantics",
     )
     def operating_guide() -> str:
         return agent_guide()
@@ -108,8 +108,13 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         return agent_guide()
 
     @tool(read_only=True)
+    async def system_info() -> dict[str, Any]:
+        """Start here before desktop or subprocess calls: identify the server OS (platform: Darwin for macOS, Windows for Windows), os_version, architecture and coordinate_unit. subprocess includes path_style, default_cwd, default_encoding, environment_source and an explicit shell_example. Does not access the desktop, check permissions or initialize a shell. Reports metadata for the server computer, not the client."""
+        return await device.system_info()
+
+    @tool(read_only=True)
     async def device_info() -> dict[str, Any]:
-        """Start here: identify the host platform, desktop capability and OS permissions. No permission prompt is opened."""
+        """Check desktop capability and OS permissions after system_info. Also returns platform and coordinate_unit. No permission prompt is opened."""
         return await device.info()
 
     @tool()
@@ -130,7 +135,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         ] = 30,
         max_output_chars: Annotated[int, Field(ge=1, le=100000)] = 20000,
     ) -> dict[str, Any]:
-        """Execute a program and wait for exit; return code, stdout/stderr and truncation flags. args are literal, so pass an explicit shell for shell syntax. env extends fresh system shell settings, never this Python process's env. stdin is EOF. Output is capped per pipe; timeout stops the process. Windows may require encoding='gbk' or 'utf-8'."""
+        """Execute a program and wait for exit; return code, stdout/stderr and truncation flags. Call system_info first for the host OS, paths, default encoding and shell example. args are literal, so pass an explicit shell for shell syntax. env extends fresh system shell settings, never this Python process's env. stdin is EOF. Output is capped per pipe; timeout stops the process. Windows may require encoding='gbk' or 'utf-8'."""
         async with device.lock:
             return await run_command(
                 device.computer,

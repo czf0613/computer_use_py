@@ -99,6 +99,7 @@ async def test_discovery_exposes_instructions_tools_and_agent_guide(component):
         assert "device_info" in client.instructions
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         assert {
+            "system_info",
             "device_info",
             "list_displays",
             "screenshot",
@@ -107,6 +108,8 @@ async def test_discovery_exposes_instructions_tools_and_agent_guide(component):
             "type_text",
             "run_subprocess",
         } <= tools.keys()
+        assert tools["system_info"].annotations.read_only_hint
+        assert not tools["system_info"].annotations.destructive_hint
         assert tools["screenshot"].annotations.read_only_hint
         assert tools["click"].input_schema["properties"]["x"]["type"] == "integer"
         resources = await client.list_resources()
@@ -116,6 +119,70 @@ async def test_discovery_exposes_instructions_tools_and_agent_guide(component):
         prompts = await client.list_prompts()
         prompt = await client.get_prompt(prompts.prompts[0].name)
         assert prompt.messages
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "system,os_name,os_version,architecture,unit,encoding,shell,args,path_style",
+    [
+        ("Darwin", "macOS", "15.6", "arm64", "global display points", "utf-8",
+         "/bin/zsh", ["-c", "echo hello"], "posix"),
+        ("Windows", "Windows", "10.0.26100", "AMD64", "physical_pixel", "cp936",
+         "cmd.exe", ["/c", "echo hello"], "windows"),
+        ("Linux", "Linux", "6.12.0", "x86_64", None, "utf-8",
+         "/bin/sh", ["-c", "echo hello"], "posix"),
+    ],
+)
+async def test_system_info_describes_host_without_desktop_or_shell_access(
+    component, monkeypatch, tmp_path, system, os_name, os_version, architecture,
+    unit, encoding, shell, args, path_style,
+):
+    import platform
+
+    from scapkit_computer_use import process
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("system_info must not access the desktop or launch a shell")
+
+    component.device.system = system
+    monkeypatch.setattr(component.computer, "check_permission", forbidden)
+    monkeypatch.setattr(component.computer, "list_displays", forbidden)
+    monkeypatch.setattr(process, "_shell_environment", forbidden)
+    monkeypatch.setattr(process, "_spawn", forbidden)
+    monkeypatch.setattr(process, "_default_encoding", lambda: encoding)
+    monkeypatch.setattr(platform, "mac_ver", lambda: ("15.6", ("", "", ""), "arm64"))
+    monkeypatch.setattr(platform, "win32_ver", lambda: ("11", "10.0.26100", "", ""))
+    monkeypatch.setattr(platform, "release", lambda: "6.12.0")
+    monkeypatch.setattr(platform, "machine", lambda: architecture)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SCAPKIT_SECRET_SENTINEL", "not-for-system-info")
+    async with Client(component.package.create_server(device=component.device)) as client:
+        # Host metadata stays available even while another tool owns the device.
+        async with component.device.lock:
+            result = await asyncio.wait_for(client.call_tool("system_info", {}), 2)
+    assert not result.is_error
+    info = result.structured_content
+    assert info["platform"] == system
+    assert info["os_name"] == os_name
+    assert info["os_version"] == os_version
+    assert info["architecture"] == architecture
+    assert info["coordinate_unit"] == unit
+    assert info["desktop_supported"] == (system in {"Darwin", "Windows"})
+    command = info["subprocess"]
+    assert command["path_style"] == path_style
+    assert command["default_cwd"] == str(tmp_path)
+    assert command["default_encoding"] == encoding
+    assert command["arguments_are_literal"] is True
+    assert command["inherits_server_environment"] is False
+    assert command["shell_example"] == {"executable": shell, "args": args}
+    assert command["environment_source"] == (
+        "user/system environment block, then cmd AutoRun"
+        if system == "Windows"
+        else "clean login + interactive shell from the system account"
+    )
+    assert "not-for-system-info" not in str(info)
+    assert "permissions" not in info
+    assert not component.computer.events
 
 
 @pytest.mark.asyncio
@@ -231,6 +298,9 @@ async def test_official_client_can_call_tools_through_fastapi_http(component, mo
     ):
         transport = streamable_http_client("http://127.0.0.1/mcp", http_client=http)
         async with Client(transport, mode=mode) as client:
+            info = await client.call_tool("system_info", {})
+            assert not info.is_error
+            assert info.structured_content["platform"] == "Darwin"
             result = await client.call_tool("screenshot", {})
             assert not result.is_error
             assert result.structured_content["image_width"] == 200
@@ -246,10 +316,15 @@ async def test_stdio_cli_is_discoverable_without_desktop_access():
         env={"PYTHONPATH": source},
     )
     async with Client(params) as client:
-        assert "device_info" in client.instructions
+        assert "system_info" in client.instructions
         assert "run_subprocess" in {
             tool.name for tool in (await client.list_tools()).tools
         }
+        result = await client.call_tool("system_info", {})
+        assert not result.is_error
+        import platform
+
+        assert result.structured_content["platform"] == platform.system()
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,8 @@
 #import <sys/stat.h>
 #import <unistd.h>
 
+static const long RWMaxInFlightVideoFrames = 8;
+
 static NSError *RWError(NSString *message, NSInteger code) {
     return [NSError errorWithDomain:@"ScapkitRecordingWriter"
                                code:code
@@ -77,7 +79,7 @@ static void RWEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     @autoreleasepool {
         _publicationLock = (os_unfair_lock)OS_UNFAIR_LOCK_INIT;
         _queue = dispatch_queue_create("scapkit.recording.writer", DISPATCH_QUEUE_SERIAL);
-        _videoSlots = dispatch_semaphore_create(2);
+        _videoSlots = dispatch_semaphore_create(RWMaxInFlightVideoFrames);
         _audio = [NSMutableArray array];
         if (!_queue || !_videoSlots || !_audio) {
             if (error) {
@@ -150,8 +152,8 @@ static void RWEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
         NSDictionary *properties = @{
             (__bridge NSString *)kVTCompressionPropertyKey_RealTime : @YES,
             (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering : @NO,
-            // Two slots require the encoder to emit the preceding frame by the
-            // next submission, instead of waiting for an unbounded lookahead.
+            // Keep encoder lookahead short; the extra slots absorb transient
+            // encoding/writing delays without increasing intentional latency.
             (__bridge NSString *)kVTCompressionPropertyKey_MaxFrameDelayCount : @1,
             (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate : @(fps),
             (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel :
@@ -343,7 +345,7 @@ static void RWEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
             }
             return NO;
         }
-        /* Permit two frames in flight, including samples waiting for the file
+        /* Permit a bounded burst of frames, including samples waiting for the file
          * writer. Waiting for every frame to finish here stalls SCStream delivery
          * and makes the frame clock repeatedly encode its old cached image.
          * Only finishAt: drains the encoder; sustained overload remains bounded. */
@@ -807,8 +809,9 @@ static void RWEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
                 if (owner->_videoSlots) {
                     while (dispatch_semaphore_wait(owner->_videoSlots, DISPATCH_TIME_NOW) == 0) {
                     }
-                    dispatch_semaphore_signal(owner->_videoSlots);
-                    dispatch_semaphore_signal(owner->_videoSlots);
+                    for (long i = 0; i < RWMaxInFlightVideoFrames; i++) {
+                        dispatch_semaphore_signal(owner->_videoSlots);
+                    }
                 }
             };
             if (dispatch_get_specific(&RWQueueKey) == (__bridge void *)self) {

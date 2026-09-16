@@ -9,7 +9,8 @@ MCP 模块支持常规 CPython 3.10+ 和 free-threaded 3.14+。**不支持 3.13t
 free-threaded CPython 3.13。需要无 GIL MCP 服务时请选择 3.14t。基础库自身的 3.13t
 支持和 wheel 不受影响。
 
-MCP 服务自 `0.1.0` 起提供，`0.1.1` 增加屏幕与系统声音录制工具。
+MCP 服务自 `0.1.0` 起提供，`0.1.1` 增加屏幕与系统声音录制工具，
+`0.1.2` 增加操作系统与命令执行约定查询工具 `system_info`。
 
 ## 安装与运行
 
@@ -80,6 +81,7 @@ async def main():
     async with Client("http://127.0.0.1:8000/mcp") as client:
         print(client.instructions)
         print([tool.name for tool in (await client.list_tools()).tools])
+        print((await client.call_tool("system_info", {})).structured_content)
         print((await client.call_tool("device_info", {})).structured_content)
 
 asyncio.run(main())
@@ -95,19 +97,21 @@ sdist 一起打包，且通过三种 MCP 机制暴露，避免仅依赖客户端
 - `computer_use` prompt：供客户端显式载入操作流程。
 
 工具本身也包含参数 schema、范围限制、权限要求、返回值说明以及读写提示。
-agent 应遵循 `device_info → list_displays → screenshot → 操作 → screenshot 验证`。
-鼠标使用全局 **point**；截图使用图片局部像素，必须按返回的实际尺寸换算，支持
+agent 应先调用 `system_info` 判断**服务端电脑**的系统，再选择命令和参数。
+桌面操作遵循 `system_info → device_info → list_displays → screenshot → 操作 → screenshot 验证`。
+鼠标使用全局坐标：macOS 为 **point**，Windows 为**物理像素**；截图使用图片局部像素，必须按返回的实际尺寸换算，支持
 Retina、负坐标显示器和客户端缩放。服务不会向 agent 暴露 native capsule 或裸像素内存。
 
 | 工具 | 用途 |
 | --- | --- |
+| `system_info` | 操作系统、版本、架构、坐标单位及 subprocess 的路径、编码、环境与 shell 示例 |
 | `device_info` | 平台、能力与权限状态，不弹授权窗口 |
-| `list_displays` | 显示器 ID、全局位置、point 尺寸、缩放比例 |
+| `list_displays` | 显示器 ID、全局位置、输入坐标单位下的尺寸、缩放比例 |
 | `screenshot` | 返回 JPEG 图像内容与坐标换算元数据，调用后停止截图流 |
 | `start_recording` | 开始指定显示器和系统声音录制，返回录制 ID |
 | `stop_recording` | 按录制 ID 停止并完成 MP4，返回文件元数据 |
 | `recording_status` | 查询当前或最近一次录制的状态、ID 和设置 |
-| `get_mouse_position` / `move_mouse` | 读取或移动全局 point 坐标 |
+| `get_mouse_position` / `move_mouse` | 读取或移动全局输入坐标 |
 | `click` / `drag` | 串行完成移动加点击，或从指定起点拖动到终点 |
 | `scroll` | 内容移动方向与滚动行数 |
 | `press_key` | 命名按键及修饰键，按下后自动释放 |
@@ -118,6 +122,30 @@ Retina、负坐标显示器和客户端缩放。服务不会向 agent 暴露 nat
 macOS 缺少 ScreenCapture / Accessibility 权限时，工具会返回明确错误，由用户在
 系统设置为运行服务的终端或宿主应用授权。Windows 原生后端现已注册桌面工具，
 坐标使用虚拟桌面物理像素，权限和平台限制见 [Windows 后端](windows.md)。
+
+### 查询操作系统与 subprocess 约定
+
+`system_info` 无参数、只读，不检查桌面权限，也不启动 shell；只需执行命令的客户端
+可以直接使用，无需先调用 `device_info` 或 `list_displays`。
+
+| 返回字段 | 含义 |
+| --- | --- |
+| `platform` / `os_name` | macOS 返回 `Darwin` / `macOS`；Windows 均返回 `Windows` |
+| `os_version` | macOS 产品版本；Windows 含 build 的系统版本；无法取得时为 `null` |
+| `architecture` | 服务端 Python 运行时报告的机器架构，如 `arm64`、`AMD64`；无法取得时为 `null` |
+| `desktop_supported` | 平台是否有桌面后端，不代表原生扩展已安装或权限已就绪 |
+| `coordinate_unit` | macOS 为 `global display points`，Windows 为 `physical_pixel`；其他平台为 `null` |
+| `subprocess.path_style` | `posix` 或 `windows`，路径属于服务端电脑 |
+| `subprocess.default_cwd` | 未传 `cwd` 时使用的服务端当前工作目录 |
+| `subprocess.default_encoding` | 与基础库共用解析逻辑：macOS 为 `utf-8`；Windows 为当前控制台输出代码页，无控制台时回退 OEM 代码页 |
+| `subprocess.arguments_are_literal` | 始终为 `true`；管道、变量展开与重定向需显式选择 shell |
+| `subprocess.inherits_server_environment` | 始终为 `false`；`env` 在干净环境初始化后新增或覆盖 |
+| `subprocess.environment_source` | macOS 为系统账户的干净 login + interactive shell；Windows 为用户/系统环境块再执行 cmd AutoRun |
+| `subprocess.shell_example` | 可传给 `run_subprocess` 的 shell 调用示例：macOS `/bin/zsh -c`；Windows `cmd.exe /c` |
+
+`shell_example` 是显式 shell 的用法示例，不代表用户配置的登录 shell，也不执行命令探测。
+默认编码是解码器的当前默认值，具体程序可能输出其他编码，必要时显式传入 `encoding`。
+Windows 的 `.bat` / `.cmd` 文件需显式通过 cmd 执行。返回内容不包含环境变量值。
 
 `run_subprocess` 使用基础库的文本流并并发排空 stdout/stderr，默认每路保留 20,000
 字符（最高 100,000），超过后丢弃多余输出并标明截断。默认执行时限 30 秒（最高 120），

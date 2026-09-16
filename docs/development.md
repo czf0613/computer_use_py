@@ -70,7 +70,8 @@ uv run pytest tests/test_recording.py tests/test_recording_integration.py tests/
 `recording_writer.m` 独立管理硬件 VideoToolbox session、AAC 和 MP4 临时文件。
 提交/结束/取消从调用方串行调用，内部编码回调与写入队列独立。停止排空时不持有
 Python thread state、capture queue 或 condition，避免回调死锁。
-正常提交最多允许两帧在途，槽位覆盖压缩输出写入完成；只在最终停止时调用
+正常提交最多允许八帧在途，为启动和短暂性能波动留出余量，槽位覆盖压缩输出写入完成；
+只在最终停止时调用
 `VTCompressionSessionCompleteFrames`，避免逐帧同步等待阻塞采集并重复旧画面。
 音频静音补齐跟随已完成视频时间。可选 `video_quality` 控制质量，由编码器分配码率；
 指定时检查硬件编码器支持情况。异步回调通过弱 owner 的完成上下文访问 writer，

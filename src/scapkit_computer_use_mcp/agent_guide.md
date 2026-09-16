@@ -1,8 +1,28 @@
 # Computer Use MCP: agent operating guide
 
-This server controls the computer where it runs. Start with `device_info`, then
-`list_displays`, then `screenshot`. Do not assume it is the same computer as your
-client. macOS and Windows expose desktop tools when the native backend is installed.
+This server controls the computer where it runs. Start with `system_info` before
+choosing desktop coordinates or subprocess commands. Do not assume it is the same
+computer or OS as your client. For desktop work, continue with `device_info`,
+`list_displays`, then `screenshot`. macOS and Windows expose desktop tools when
+the native backend is installed.
+
+## Identify the host
+
+`system_info` takes no arguments. It returns `platform` (`Darwin` for macOS,
+`Windows` for Windows), `os_name`, `os_version`, `architecture`,
+`desktop_supported`, `coordinate_unit`, and `subprocess` settings. macOS
+`os_version` is the product version, not the Darwin kernel release; Windows
+returns the OS version including build. Unknown version/architecture is `null`.
+`architecture` is reported by the server's Python runtime. `desktop_supported`
+describes the platform, not whether its native backend or permissions are ready.
+
+This read-only tool does not check desktop permissions or launch a shell. For
+subprocess-only work, use it directly without `device_info` or display discovery.
+Read `subprocess.path_style`, `default_cwd`, `default_encoding`,
+`environment_source`, and `shell_example` before constructing a command.
+`shell_example` is an explicit command invocation example, not the user's
+configured login shell or proof of an executable on PATH. No environment variable
+values are returned.
 
 ## Observe, act, verify
 
@@ -22,7 +42,7 @@ client. macOS and Windows expose desktop tools when the native backend is instal
 ## Coordinates
 
 Mouse tools accept integer **global input coordinates**: macOS display points,
-Windows physical pixels. Read `coordinate_unit` from `device_info` and screenshots.
+Windows physical pixels. Read `coordinate_unit` from `system_info` and screenshots.
 Coordinates increase rightward
 and y downward. Display origins may be negative. Screenshot locations are pixels
 relative to that image, not global points. Convert using the screenshot result:
@@ -98,14 +118,20 @@ guarantee a completed file.
 
 ## Commands
 
-`run_subprocess` accepts an executable and literal argument list, optional `cwd`
+First call `system_info` and select commands for the **server OS**. `run_subprocess`
+accepts an executable and literal argument list, optional `cwd`
 and additional `env`. Its environment comes from fresh system shell settings,
 not the server Python process. For shell syntax explicitly execute `/bin/zsh`
 with `["-c", "..."]` or Windows `cmd.exe` with `["/c", "..."]`.
 The MCP tool waits for completion, returns exit code plus separate text stdout
 and stderr, and limits output and execution time. It does not return Python
 stream objects or leave background jobs under MCP management. Check the exit code.
-macOS defaults to UTF-8; Windows programs may need an explicit `encoding`.
+Omitted `cwd` uses `subprocess.default_cwd` on the server, not the client directory.
+Use POSIX paths on macOS and Windows paths on Windows. macOS defaults to UTF-8;
+Windows defaults to its console output code page, falling back to the OEM code
+page without a console. `subprocess.default_encoding` reports the current decoder
+default; the invoked program may emit a different encoding, so pass `encoding`
+explicitly when needed. Windows `.bat`/`.cmd` files require explicit `cmd.exe`.
 On timeout or cancellation, macOS terminates the owned process group; Windows
 terminates the direct child. Detached processes are not managed by this server.
 
