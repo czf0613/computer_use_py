@@ -5,13 +5,14 @@
 `scapkit_computer_use` is a Python desktop automation library for CPython **3.10+**,
 including free-threaded CPython 3.13/3.14. The library requires macOS
 13.0; source builds default to that deployment target and do not restrict CPU
-architecture. Official prebuilt wheels target **macOS 15+ arm64**; CI runs on
-macOS 15 / 26 arm64. Do not confuse this distribution policy with source
+architecture. The release workflow builds wheels for **macOS 15+ arm64** and
+**Windows x64 / ARM64**. macOS CI runs on macOS 15 / 26 arm64. Do not confuse
+this distribution policy with source
 compatibility or claim older macOS / Intel runtime verification. This source branch
 also implements a Windows backend targeting recent Windows 10/11 x64 and ARM64.
 Desktop runtime acceptance has run on Windows 11 x64 only; do not claim Windows 10
 or ARM64 runtime verification before it occurs. See `docs/windows.md` for evidence
-and limits. This does not change the published macOS wheel policy automatically.
+and limits. Windows release wheels do not change the macOS wheel deployment target.
 
 - `src/scapkit_computer_use/`: public Python API and async wrappers.
 - `src/scapkit_computer_use/process.py`: shell environment bootstrap, process
@@ -102,6 +103,10 @@ harness `tests/manual/verify_windows.py --desktop` posts real input and records.
 Use `/W4` and `SCAPKIT_ANALYZE=1` for MSVC analysis. Windows coordinates are physical
 pixels; macOS coordinates remain points. Prefer hardware MF encoding, allow software
 fallback, bound application queues, and preserve timestamps when dropping frames.
+Screenshot and video dimensions are image pixels on both platforms. MCP's compatibility
+fields `points_per_pixel_x/y` mean input units per image pixel, including on Windows;
+never apply `ui_scale_factor` to input coordinates. Keep README, tool descriptions and
+the packaged agent guide consistent; use actual screenshot dimensions and display origins.
 
 ## Native safety and conventions
 

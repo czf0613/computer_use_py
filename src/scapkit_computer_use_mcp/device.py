@@ -259,7 +259,7 @@ class Device:
             for d in displays
         ):
             raise ValueError(
-                "Point is outside the current displays. Call list_displays and convert screenshot pixels to global points."
+                "Point is outside the current displays. Call list_displays and convert screenshot pixels to global input coordinates using the screenshot metadata."
             )
         return {"x": x, "y": y}
 

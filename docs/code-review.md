@@ -1,7 +1,8 @@
 # 原生扩展审查记录（2026-09-12）
 
 本次范围：macOS C/Objective-C 扩展、Python async 封装、Python 3.10/free-threaded
-兼容性、构建和发布配置。Windows 目录只有 CMake 占位配置，没有可审查的原生实现。
+兼容性、构建和发布配置。审查当时 Windows 目录只有 CMake 占位配置；后续实现及
+验证范围见 [Windows 后端](windows.md)。
 
 ## 已修复的问题
 
@@ -90,4 +91,3 @@ GitHub Actions 执行。macOS 12.3–14 和 Intel Mac 未做实际运行测试�
 
 CI 配置和 Trusted Publisher 绑定已完成。推送 `master` 触发远端检查；
 发布 GitHub Release 才会触发 PyPI 发布流程，运行结果以 GitHub Actions 为准。
-本次未创建 release 或向 PyPI 上传版本。

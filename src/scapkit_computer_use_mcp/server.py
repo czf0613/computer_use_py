@@ -28,7 +28,7 @@ Coordinate = Annotated[
         strict=True,
         ge=-(2**31),
         le=2**31 - 1,
-        description="Global input coordinate: macOS points or Windows physical pixels; convert screenshot coordinates first",
+        description="Global input coordinate: macOS logical points or Windows physical pixels. Convert image pixels using screenshot display origin and points_per_pixel_x/y; never apply Windows UI scaling.",
     ),
 ]
 Modifier = Literal["command", "shift", "option", "control", "fn", "win", "alt"]
@@ -95,7 +95,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
     @server.resource(
         "computer://guide",
         mime_type="text/markdown",
-        description="Host OS, device workflow, coordinate mapping, permissions and command semantics",
+        description="Host OS, device workflow, macOS/Windows input units and image-pixel mapping, permissions and command semantics",
     )
     def operating_guide() -> str:
         return agent_guide()
@@ -175,7 +175,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
     async def stop_recording(
         recording_id: Annotated[str, Field(min_length=1)],
     ) -> dict[str, Any]:
-        """Stop this recording and finish the server-local MP4; return path, size_bytes, duration_s, width, height and fps in result, plus Windows frames_written/frames_dropped. Repeating the same ID returns the saved result until the next recording starts. An older ID cannot stop a newer recording. Does not transfer the video to the client."""
+        """Stop this recording and finish the server-local MP4; return path, size_bytes, duration_s, width, height and fps in result, plus Windows frames_written/frames_dropped. Width/height are video pixels, possibly padded to even dimensions, not mouse input units; take a fresh screenshot to map a click. Repeating the same ID returns the saved result until the next recording starts. An older ID cannot stop a newer recording. Does not transfer the video to the client."""
         return await device.stop_recording(recording_id)
 
     @tool(read_only=True)
@@ -185,7 +185,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     @tool(read_only=True)
     async def list_displays() -> list[dict[str, Any]]:
-        """List display IDs, main display, global origins and dimensions in input units plus pixel scale. Use before screenshot or mouse input."""
+        """List display IDs, main display, global origins and dimensions: macOS logical points, Windows physical pixels. Windows scale_factor=1; ui_scale_factor describes UI scaling only and must not scale mouse coordinates. Origins may be negative. Use before screenshot or mouse input."""
         return await device.invoke("list_displays")
 
     @tool(read_only=True)
@@ -199,7 +199,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
             float, Field(ge=0.1, le=30, allow_inf_nan=False)
         ] = 5,
     ) -> CallToolResult:
-        """Observe a display as a JPEG image. Requires ScreenCapture permission on macOS. Returns actual pixel dimensions and points_per_pixel_x/y: global x = display.x + image_x * points_per_pixel_x (likewise y). Capture is stopped after this call; no persistent handle is exposed. timeout_seconds bounds waiting for the first frame after native startup."""
+        """Observe a display as a JPEG image. Returns coordinate_unit, display geometry, actual image_width/image_height and points_per_pixel_x/y (input units per image pixel on both platforms). For image-local pixels: global x = round(display.x + image_x * points_per_pixel_x), likewise y. Input units are macOS logical points or Windows physical pixels; never apply Windows UI scaling. If the client resizes the image, first restore coordinates to the returned image dimensions. Quality changes compression, not resolution. Requires ScreenCapture permission on macOS. Capture is stopped after this call; no persistent handle is exposed. timeout_seconds bounds waiting for the first frame after native startup."""
         data, metadata = await device.screenshot(display_id, quality, timeout_seconds)
         return CallToolResult(
             content=[
@@ -213,7 +213,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     @tool(read_only=True)
     async def get_mouse_position() -> dict[str, Any]:
-        """Read the cursor's current global input coordinates."""
+        """Read the cursor's current global input coordinates: macOS logical points or Windows physical pixels, not image-local pixels."""
         return await device.invoke("get_mouse_position")
 
     @tool()
@@ -246,7 +246,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         direction: Literal["up", "down", "left", "right"],
         distance: Annotated[int, Field(ge=1, le=100)] = 3,
     ) -> dict[str, Any]:
-        """Scroll at the current cursor position. Direction describes CONTENT movement (macOS natural scrolling); distance is positive lines. Requires Accessibility on macOS."""
+        """Scroll at the current cursor position. Direction describes CONTENT movement; distance is positive lines on macOS and wheel steps on Windows. The backend handles native wheel direction. Requires Accessibility on macOS."""
         await device.invoke(
             "mouse_scroll", direction, distance, permission="Accessibility"
         )

@@ -41,24 +41,53 @@ values are returned.
 
 ## Coordinates
 
-Mouse tools accept integer **global input coordinates**: macOS display points,
-Windows physical pixels. Read `coordinate_unit` from `system_info` and screenshots.
-Coordinates increase rightward
-and y downward. Display origins may be negative. Screenshot locations are pixels
-relative to that image, not global points. Convert using the screenshot result:
+**Input coordinates and image pixels are different data.** Read `coordinate_unit`
+from `system_info`, `device_info` and each screenshot; never infer it from the
+operating system's UI scaling or from the `points_per_pixel_*` field names.
+
+| Data | macOS | Windows |
+| --- | --- | --- |
+| Display `x/y/width/height`; mouse positions, click and drag coordinates | Global logical display points | Virtual-desktop physical pixels |
+| `coordinate_unit` | `global display points` | `physical_pixel` |
+| Screenshot `image_width/image_height`; recorded video `width/height` | Image pixels | Image pixels |
+| Display `scale_factor` | Current display-mode pixels per point | `1.0` |
+| Display `ui_scale_factor` | Not supplied | UI scaling only, e.g. `1.5`; never apply it to input coordinates |
+
+Mouse tools accept integer **global input coordinates**. Screenshot positions are
+**image-local pixels**, with (0, 0) at the image's top left. Both axes increase
+rightward/downward. Display origins may be negative. Always use the target
+display's own screenshot metadata and convert before calling a mouse tool:
 
     x = round(display.x + image_x * points_per_pixel_x)
     y = round(display.y + image_y * points_per_pixel_y)
 
-Example: origin (-100, 30), 200x100 image, 100x50 points. Image pixel (40, 20)
-maps to global point (-80, 40). Do not multiply Retina coordinates by two.
-If your client rescales the displayed image, first map back to the original
-`image_width`/`image_height`. Click inside the display bounds, not on its right
-or bottom exclusive boundary.
+The compatibility names `points_per_pixel_x/y` mean **input units per image
+pixel on both platforms**: `display.width / image_width` and
+`display.height / image_height`. They do not mean Windows uses logical points.
+Use the returned ratios; do not hardcode a Retina factor or assume every monitor
+has the same scale. JPEG quality changes compression, not image dimensions.
 
-Windows UI scaling (such as 150% or 200%) is separate from screenshot-to-input
-conversion. Do not multiply physical coordinates by UI scaling. A point can be
-inside the virtual desktop's bounding rectangle but outside both actual displays.
+Examples, using image-local pixel (600, 400):
+
+| Display | Global origin | Display width/height in input units | Actual screenshot pixels | Ratio x/y | Mouse target |
+| --- | --- | --- | --- | --- | --- |
+| macOS Retina | (-1440, 0) | 1440×900 points | 2880×1800 | 0.5 / 0.5 | (-1140, 200) points |
+| Windows, 200% UI | (0, 0) | 3840×2160 physical pixels | 3840×2160 | 1 / 1 | (600, 400) physical pixels |
+| Windows second display, 150% UI | (3840, 1134) | 2560×1600 physical pixels | 2560×1600 | 1 / 1 | (4440, 1534) physical pixels |
+
+If the client resizes an image for viewing, first map the observed position back
+to the original `image_width/image_height`. For the last example, if the image is
+shown at 1280×800, observed (300, 200) becomes original (600, 400), then global
+(4440, 1534). Account for any viewer padding/cropping before this conversion.
+Do not multiply macOS mouse coordinates by Retina scaling, or multiply/divide
+Windows coordinates by 150%/200% UI scaling. Click inside the display bounds,
+not on the right/bottom exclusive boundary or in gaps between monitors.
+After changing display layout or resolution, fetch fresh displays and a screenshot.
+
+Recorded video dimensions are output pixels, not mouse coordinate dimensions.
+H.264 output may pad an odd width/height by one pixel on the right/bottom. Video
+metadata does not supply a current screenshot-to-input mapping; take a fresh
+screenshot and use its metadata before acting on something seen in a recording.
 
 ## Input
 

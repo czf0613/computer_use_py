@@ -2,13 +2,13 @@
 
 跨平台桌面自动化 Python 库，提供屏幕截图、屏幕与系统声音录制、鼠标控制、键盘输入、剪贴板和 subprocess 操作。
 
-当前支持 macOS；库的最低系统版本为 macOS 13.0。
-已发布的官方预编译 wheel 为 macOS 15+ arm64；0.1.2 发布流程新增 Windows x64/ARM64
-wheel，这不是 macOS 源码安装的系统或架构限制。
-当前源码新增 Windows x64 / ARM64 原生后端，使用 Windows 系统 API 完成键鼠、
+支持 macOS 和 Windows；macOS 的最低系统版本为 13.0。
+官方 wheel 的构建目标为 macOS 15+ arm64 和 Windows x64 / ARM64，
+这不是 macOS 源码安装的系统或架构限制。Windows wheel 自 0.1.2 起纳入发布流程。
+Windows x64 / ARM64 原生后端使用 Windows 系统 API 完成键鼠、
 双屏截图、剪贴板及 H.264/AAC 录制，不依赖 FFmpeg 或显卡厂商 SDK。
-目前本机验证为 Windows 11 x64；Windows 10 和 ARM64 的运行验证仍需对应设备。
-这些改动尚未发布到 PyPI。安装与差异见 [Windows 后端](docs/windows.md)。
+桌面实测环境为 Windows 11 x64；ARM64 已通过原生编译、合成测试和 wheel 构建 CI，
+Windows 10 和 ARM64 的桌面交互仍需对应设备验收。安装与差异见 [Windows 后端](docs/windows.md)。
 
 ## 安装
 
@@ -35,7 +35,7 @@ uv add scapkit_computer_use
 
 ## 可选 MCP Server
 
-源码新增了基于 FastAPI 的 MCP server，供 agent 通过标准 MCP 工具控制设备。
+提供基于 FastAPI 的 MCP server，供 agent 通过标准 MCP 工具控制设备。
 普通安装不引入 MCP/FastAPI 依赖。MCP 服务自 `0.1.0` 起提供，也可从源码运行：
 
 ```sh
@@ -48,9 +48,10 @@ uv run --extra mcp scapkit-mcp
 调用方先使用 `system_info` 查询服务端操作系统、坐标单位和 subprocess 的路径、编码及 shell 用法。
 MCP 也提供 `start_recording`、`stop_recording`、`recording_status`，将视频保存到服务端路径。
 服务自动提供 agent instructions、操作指南 resource 和 prompt，说明权限、工具使用顺序、
-Retina 坐标换算及操作后的验证流程。
+macOS 逻辑坐标、Windows 物理坐标、截图像素换算及操作后的验证流程。
 可选 MCP 模块支持常规 Python 3.10+；macOS 也测试 3.14t。上游 CFFI 不支持
-3.13t，当前 Windows MCP 的 pywin32 依赖也缺少 3.14t 安装包。这不影响基础库的无 GIL 支持。
+3.13t，Windows MCP 的 pywin32 依赖缺少 3.14t 安装包、cryptography 缺少 ARM64 wheel，
+因此 Windows MCP 在普通 x64 Python 上验证。这不影响基础库的无 GIL 和 ARM64 支持。
 
 详见 [MCP 安装、客户端配置与工具说明](docs/mcp-server.md) 和
 [agent 操作指南](src/scapkit_computer_use_mcp/agent_guide.md)。
@@ -73,16 +74,40 @@ if not check_permission("Accessibility"):
 
 ### 显示器信息
 
-macOS 的坐标和尺寸使用 **point**（逻辑分辨率），物理像素 = point × scale_factor；
-Windows 使用**物理像素**。API 中的鼠标移动、点击等位置参数采用对应平台的全局坐标单位。
+**显示器几何与鼠标输入使用同一套平台坐标，截图和录屏尺寸则始终是图像像素。**
+
+| 数据 | macOS | Windows |
+| --- | --- | --- |
+| `list_displays()` 的 `x/y/width/height` | 全局逻辑 points | 虚拟桌面物理像素 |
+| 鼠标位置、绝对移动、点击与拖拽位置 | 全局逻辑 points | 虚拟桌面物理像素 |
+| JPEG / BGRA 的宽高、录制结果的宽高 | 输出图像像素 | 输出图像像素 |
+| `scale_factor` | 当前显示模式的像素 / point 比例 | `1.0` |
+| `ui_scale_factor` | 不提供此字段 | UI 缩放，如 150% 为 `1.5`；不用于鼠标坐标换算 |
+
+两平台均以屏幕左上角为局部原点，向右/向下递增；全局原点由显示器布局决定，副屏可有
+负坐标。macOS 的鼠标坐标不要乘 Retina 倍率；Windows 不要乘或除系统的 150% / 200%
+UI 缩放。多屏必须使用目标显示器自己的原点和截图尺寸。
 
 ```python
 from scapkit_computer_use import list_displays
 
 displays = list_displays()
-# [{"id": 2, "x": 0, "y": 0, "width": 1920, "height": 1080, "scale_factor": 2.0, "is_main": True}]
-# width/height 为 point 单位，实际物理像素为 1920×2 = 3840, 1080×2 = 2160
+# macOS 示例：逻辑尺寸 1920×1080 points，scale_factor=2，截图为 3840×2160 像素
+# Windows 示例：3840×2160 屏幕设置 200% UI 缩放时，width/height 仍为 3840/2160，
+# scale_factor=1.0，ui_scale_factor=2.0；鼠标位置也使用物理像素
 ```
+
+从截图中的局部像素位置转换为鼠标全局输入坐标：
+
+```python
+x = round(display["x"] + image_x * display["width"] / image_width)
+y = round(display["y"] + image_y * display["height"] / image_height)
+```
+
+`image_width/image_height` 必须是实际返回图片的像素尺寸。若客户端把图片缩小展示，先把
+观察到的位置还原到原图像素。MCP 已返回 `coordinate_unit`、`image_width/image_height`
+和 `points_per_pixel_x/y`；后两个比例字段沿用兼容命名，在 Windows 上也表示
+**输入坐标单位 / 图片像素**。完整例子见 [MCP 坐标说明](docs/mcp-server.md#坐标与输出分辨率)。
 
 ### 鼠标控制
 
@@ -119,7 +144,7 @@ await mouse_scroll("up", 3)
 await mouse_drag({"x": 800, "y": 600})
 ```
 
-> **注意：** `move_mouse` 使用 `CGWarpMouseCursorPosition`，不会生成鼠标移动的 delta 事件，因此不适用于依赖原始鼠标 delta 的应用（如游戏中的指针锁定）。这类场景请使用 `move_mouse_relative`，它通过 `CGEventCreateMouseEvent` 发送包含 `deltaX/deltaY` 的 `kCGEventMouseMoved` 事件。
+> **macOS 注意：** `move_mouse` 使用 `CGWarpMouseCursorPosition`，不会生成鼠标移动的 delta 事件，因此不适用于依赖原始鼠标 delta 的应用（如游戏中的指针锁定）。这类场景请使用 `move_mouse_relative`，它通过 `CGEventCreateMouseEvent` 发送包含 `deltaX/deltaY` 的 `kCGEventMouseMoved` 事件。
 
 ### 键盘输入
 
@@ -132,7 +157,7 @@ from scapkit_computer_use import keyboard_click, key_combo
 await keyboard_click("a")
 await keyboard_click("return")
 
-# 组合键
+# macOS 组合键；Windows 的复制/粘贴使用 {"control"}，不是 {"command"}
 await key_combo("c", {"command"})    # Cmd+C 复制
 await key_combo("v", {"command"})    # Cmd+V 粘贴
 await key_combo("z", {"command", "shift"})  # Cmd+Shift+Z 重做
@@ -148,13 +173,15 @@ from scapkit_computer_use import set_clipboard, get_clipboard, clipboard_paste
 await set_clipboard("你好世界")
 text = await get_clipboard()  # "你好世界"
 
-# 直接粘贴到当前输入框（模拟 Cmd+V）
+# 直接粘贴到当前输入框（macOS Cmd+V；Windows Ctrl+V）
 await clipboard_paste()
 ```
 
 ### 屏幕截图
 
-基于 macOS ScreenCaptureKit，支持全分辨率 Retina 截图：
+macOS 使用 ScreenCaptureKit，Windows 使用 Windows Graphics Capture。JPEG 与 BGRA
+均返回当前采集画面的像素尺寸，不因逻辑坐标或 UI 缩放而缩小；JPEG `quality` 只控制
+压缩质量，不改变分辨率。以实际图片/BGRA 的宽高为准，不用逻辑尺寸或面板标称尺寸代替。
 
 ```python
 from scapkit_computer_use import (
@@ -181,7 +208,8 @@ await stop_capture(handle)
 
 ### 屏幕与系统声音录制
 
-指定显示器和保存路径，输出 QuickTime 兼容的 H.264/AAC MP4：
+指定显示器和保存路径，输出 QuickTime 兼容的 H.264/AAC MP4。录制结果的
+`width/height` 是视频像素尺寸，不是鼠标坐标尺寸；编码需要时在右侧/底部补齐到偶数。
 
 ```python
 from scapkit_computer_use import start_recording, stop_recording
@@ -194,10 +222,11 @@ finally:
 print(result.path, result.size_bytes, result.duration_s)
 ```
 
-默认固定 30 fps，支持指定整数帧率；画面静止时继续使用缓存帧，停止时补齐最后一个
-帧区间。只录制系统播放声音，不采集麦克风。VideoToolbox 要求硬件 H.264 编码，视频
-默认 `video_quality=0.75`，可传入其他 0～1 数值调整质量，或用 `None` 保留编码器策略。
-编码器按内容和分辨率分配码率。输出父目录必须存在，已有文件不会被覆盖。
+默认目标帧率为 30 fps，支持指定整数帧率；画面静止时继续使用缓存帧，停止时补齐最后一个
+帧区间。只录制系统播放声音，不采集麦克风。macOS 的 VideoToolbox 要求硬件 H.264 编码；
+Windows 的 Media Foundation 优先硬件、允许软件回退，过载时丢帧并保留真实时间轴。
+默认 `video_quality=0.75`，macOS 映射为编码器质量，Windows 映射为目标码率；
+`None` 使用平台默认策略。输出父目录必须存在，已有文件不会被覆盖。
 详见 [录制接口、生命周期与异常说明](docs/recording.md)。
 
 ### 执行 subprocess

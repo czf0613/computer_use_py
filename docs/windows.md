@@ -1,8 +1,8 @@
 # Windows 原生后端
 
-本源码分支新增 Windows 键鼠、显示器枚举、剪贴板、BGRA/JPEG 截图及屏幕/系统声音
+Windows 后端提供键鼠、显示器枚举、剪贴板、BGRA/JPEG 截图及屏幕/系统声音
 H.264/AAC MP4 录制。运行库只使用 Windows 系统接口；不依赖 FFmpeg 或显卡厂商 SDK。
-当前版本尚未发布。目标为 Windows 10 22H2 / Windows 11 23H2 及以后的 x64、ARM64，
+目标为 Windows 10 22H2 / Windows 11 23H2 及以后的 x64、ARM64，
 实际设备验证范围见文末。
 
 0.1.2 发布流程从统一 sdist 构建 Windows x64 / ARM64 wheels，每种架构覆盖
@@ -44,6 +44,12 @@ ARM64 MCP 暂未验收。OpenSSL 不是基础库依赖，CI 不从源码构建�
   屏幕拓扑改变后重新枚举，不复用长期保存的 ID。
 - 跨屏平滑路径经过实际显示器之间的可见接缝；不能把虚拟桌面外接矩形中的空白区
   当作合法目标。原生绝对事件带 `MOUSEEVENTF_VIRTUALDESK`。
+
+例如主屏 3840×2160 / 200% 时，鼠标 `(600,400)` 仍是物理像素 `(600,400)`。
+副屏 2560×1600 / 150%、原点 `(3840,1134)` 时，该屏截图中的 `(600,400)` 对应
+全局 `(4440,1534)`，不再乘除 1.5。MCP 的通用公式为
+`x = round(display.x + image_x * points_per_pixel_x)`，y 同理；客户端缩图须先还原
+到返回的 `image_width/image_height`。详细定义见 [MCP 坐标说明](mcp-server.md#坐标与输出分辨率)。
 
 鼠标拖拽使用真实 SendInput down/move/up，取消后释放按钮。Windows 输入受 UIPI、
 当前交互会话和用户并发操作影响；返回成功表示事件已提交，不代表应用已经完成操作。
@@ -163,8 +169,8 @@ PE 依赖检查只发现 Python、MSVC 运行时和 Windows 系统 DLL；MF DLL 
 MSVC `/W4` 编译通过；`/analyze` 剩余提示为 Python `PyArg_ParseTuple("s")` 的字符串
 终止契约无法被 SAL 推断，以及 Windows SDK 头文件内的批注问题。原生资源和返回值
 相关提示已处理。GitHub Actions 已通过 x64 四种 Python 配置的基础库检查，以及普通
-Python 的 MCP 检查；ARM64 3.14 / 3.14t 已通过原生编译与合成测试，3.14t 生产 wheel
-构建也通过。ARM64 可选 MCP 因上游 wheel 缺失而暂不纳入 CI。
+Python 的 MCP 检查；ARM64 3.14 / 3.14t 已通过原生编译、合成测试和生产 wheel
+构建。ARM64 可选 MCP 因上游 wheel 缺失而暂不纳入 CI。
 macOS 15 / 26 的 14 项 Python 矩阵也已通过。各次提交的完整结果以
 [GitHub Actions](https://github.com/czf0613/computer_use_py/actions) 为准。
 

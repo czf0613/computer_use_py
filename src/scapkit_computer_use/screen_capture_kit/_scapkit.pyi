@@ -73,9 +73,9 @@ def list_displays() -> list[DisplayInfo]:
     """List all active displays with their coordinates, dimensions, and scale factor.
 
     Returns a list of display info dicts with keys: id, x, y, width, height,
-    scale_factor, is_main. Coordinates are in the macOS global display
-    coordinate space (points), which is the same coordinate space used by
-    CGEvent for mouse/keyboard actions.
+    scale_factor, is_main. Geometry uses global input coordinates: macOS logical
+    display points or Windows virtual-desktop physical pixels, matching absolute
+    mouse input. Screenshot and video dimensions instead describe image pixels.
 
     The scale_factor field gives the Retina scaling ratio
     (physical pixels = points * scale_factor).
@@ -98,7 +98,7 @@ def get_mouse_position() -> Point2D:
 def move_mouse(x: int, y: int) -> None:
     """Move the mouse cursor to an absolute position.
 
-    Uses CGWarpMouseCursorPosition, which teleports the cursor without
+    On macOS uses CGWarpMouseCursorPosition, which teleports the cursor without
     generating mouse-move delta events. This means applications that rely
     on relative mouse deltas (e.g. FPS games with pointer lock) will NOT
     respond to this call. Use move_mouse_relative for those scenarios.
@@ -109,8 +109,8 @@ def move_mouse(x: int, y: int) -> None:
     pixels and rejects positions outside the active display rectangles.
 
     Args:
-        x: X coordinate in points.
-        y: Y coordinate in points.
+        x: Global X in macOS logical points or Windows physical pixels.
+        y: Global Y in macOS logical points or Windows physical pixels.
 
     Requires Accessibility permissions on macOS.
     """
@@ -119,14 +119,14 @@ def move_mouse(x: int, y: int) -> None:
 def move_mouse_relative(dx: int, dy: int) -> None:
     """Move the mouse cursor by a relative offset, generating delta events.
 
-    Posts a kCGEventMouseMoved event with explicit deltaX/deltaY fields.
+    On macOS posts a kCGEventMouseMoved event with explicit deltaX/deltaY fields.
     This works with applications that read raw mouse deltas (e.g. games
     with pointer lock like FPS).
     Windows submits relative SendInput motion; system pointer acceleration applies.
 
     Args:
-        dx: Horizontal offset in points (positive = right).
-        dy: Vertical offset in points (positive = down).
+        dx: Horizontal relative delta in platform input units (positive = right).
+        dy: Vertical relative delta in platform input units (positive = down).
 
     Requires Accessibility permissions on macOS.
     """

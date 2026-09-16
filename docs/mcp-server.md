@@ -4,10 +4,12 @@ MCP server 位于 `src/scapkit_computer_use_mcp`，使用 FastAPI 承载官方 M
 SDK 的 Streamable HTTP 接口，同时提供 stdio 启动方式。基础库不依赖 FastAPI 或 MCP；
 只有选择 `[mcp]` extra 时才安装服务端依赖。最低 Python 版本仍为 3.10。
 
-MCP 模块支持常规 CPython 3.10+ 和 free-threaded 3.14+。**不支持 3.13t**：
+MCP 在 macOS 常规 CPython 3.10+ / free-threaded 3.14+、Windows x64 常规 CPython
+3.10+ 上验证。**不支持 3.13t**：
 官方 MCP SDK 的 `pyjwt[crypto] → cryptography → cffi` 依赖链中，CFFI 明确拒绝
-free-threaded CPython 3.13。需要无 GIL MCP 服务时请选择 3.14t。基础库自身的 3.13t
-支持和 wheel 不受影响。
+free-threaded CPython 3.13。Windows 的 pywin32 还缺少 3.14t wheel，cryptography
+缺少 ARM64 wheel，因此 Windows 可选 MCP 在普通 x64 Python 上使用。基础库自身的
+无 GIL 和 ARM64 检查不受影响，CI 不为可选依赖构建 OpenSSL。
 
 MCP 服务自 `0.1.0` 起提供，`0.1.1` 增加屏幕与系统声音录制工具，
 `0.1.2` 增加操作系统与命令执行约定查询工具 `system_info`。
@@ -28,7 +30,7 @@ pip install '.[mcp]'
 scapkit-mcp
 ```
 
-安装已发布的版本可使用 `pip install 'scapkit_computer_use[mcp]'`。
+从 PyPI 安装可使用 `pip install 'scapkit_computer_use[mcp]'`。
 基础安装 `pip install scapkit_computer_use` 不会安装 MCP 依赖。
 
 默认只监听 `127.0.0.1:8000`，一个进程控制一台设备：
@@ -99,21 +101,22 @@ sdist 一起打包，且通过三种 MCP 机制暴露，避免仅依赖客户端
 工具本身也包含参数 schema、范围限制、权限要求、返回值说明以及读写提示。
 agent 应先调用 `system_info` 判断**服务端电脑**的系统，再选择命令和参数。
 桌面操作遵循 `system_info → device_info → list_displays → screenshot → 操作 → screenshot 验证`。
-鼠标使用全局坐标：macOS 为 **point**，Windows 为**物理像素**；截图使用图片局部像素，必须按返回的实际尺寸换算，支持
-Retina、负坐标显示器和客户端缩放。服务不会向 agent 暴露 native capsule 或裸像素内存。
+鼠标使用平台的全局输入坐标：macOS 为逻辑 points，Windows 为虚拟桌面物理像素；
+截图位置是图片局部像素，必须按返回元数据换算。服务不会向 agent 暴露 native capsule
+或裸像素内存。
 
 | 工具 | 用途 |
 | --- | --- |
 | `system_info` | 操作系统、版本、架构、坐标单位及 subprocess 的路径、编码、环境与 shell 示例 |
 | `device_info` | 平台、能力与权限状态，不弹授权窗口 |
-| `list_displays` | 显示器 ID、全局位置、输入坐标单位下的尺寸、缩放比例 |
+| `list_displays` | 显示器 ID、全局原点和尺寸（macOS points / Windows 物理像素）、缩放信息 |
 | `screenshot` | 返回 JPEG 图像内容与坐标换算元数据，调用后停止截图流 |
 | `start_recording` | 开始指定显示器和系统声音录制，返回录制 ID |
 | `stop_recording` | 按录制 ID 停止并完成 MP4，返回文件元数据 |
 | `recording_status` | 查询当前或最近一次录制的状态、ID 和设置 |
-| `get_mouse_position` / `move_mouse` | 读取或移动全局输入坐标 |
+| `get_mouse_position` / `move_mouse` | 读取或移动平台的全局输入坐标 |
 | `click` / `drag` | 串行完成移动加点击，或从指定起点拖动到终点 |
-| `scroll` | 内容移动方向与滚动行数 |
+| `scroll` | 内容移动方向；macOS 为行，Windows 为 wheel steps |
 | `press_key` | 命名按键及修饰键，按下后自动释放 |
 | `type_text` | 通过剪贴板粘贴 Unicode 文本，会覆盖剪贴板 |
 | `read_clipboard` / `write_clipboard` | 读取或设置剪贴板文本 |
@@ -157,6 +160,46 @@ native 启动和停止使用基础库自身的超时及清理逻辑。
 
 剪贴板操作被取消时，服务会等待已经发出的读写结束后再释放设备锁，防止延迟写入
 覆盖下一次操作的内容；取消的 `type_text` 不会在写入完成后继续执行粘贴。
+
+## 坐标与输出分辨率
+
+**macOS 的输入坐标是逻辑 points；Windows 的输入坐标是物理像素。两平台的截图和
+录屏宽高都表示输出图像像素，不能直接当成鼠标输入尺寸。**
+
+| 返回数据 | 定义 |
+| --- | --- |
+| `system_info.coordinate_unit`、`device_info.coordinate_unit`、`screenshot.coordinate_unit` | macOS 为 `global display points`，Windows 为 `physical_pixel` |
+| `display.x/y/width/height` | 目标显示器在全局输入坐标系中的原点和尺寸 |
+| `image_width/image_height` | 本次 JPEG 的实际像素尺寸；不是客户端预览图尺寸 |
+| `points_per_pixel_x/y` | 输入坐标单位 / 图片像素，分别等于 `display.width/image_width`、`display.height/image_height`；字段名为兼容保留，Windows 也使用它 |
+| `scale_factor` | 当前显示模式的像素 / 输入单位；macOS 常为 2，Windows 固定为 1 |
+| Windows `ui_scale_factor` | UI 缩放，如 150% 为 1.5；不用于鼠标坐标换算 |
+| 录制结果 `width/height` | 视频输出像素，编码需要时右侧/底部补齐到偶数 |
+
+截图坐标 `(image_x,image_y)` 以图片左上角为原点；鼠标需要加上目标屏幕全局原点：
+
+```python
+x = round(metadata["display"]["x"] + image_x * metadata["points_per_pixel_x"])
+y = round(metadata["display"]["y"] + image_y * metadata["points_per_pixel_y"])
+await client.call_tool("click", {"x": x, "y": y})
+```
+
+例如截图中 `(600,400)`：
+
+- macOS：屏幕原点 `(-1440,0)`、逻辑尺寸 `1440×900`、截图 `2880×1800`，
+  比例为 `0.5`，点击坐标为 `(-1140,200)` points。
+- Windows：3840×2160 主屏即使设置 200% UI 缩放，点击坐标仍为 `(600,400)` 物理像素。
+- Windows 副屏：原点 `(3840,1134)`、截图 `2560×1600`、150% UI 缩放，
+  点击坐标为 `(4440,1534)`，不乘除 1.5。
+
+若客户端把最后一张图缩成 `1280×800`，预览中的 `(300,200)` 须先还原成原图
+`(600,400)`，再加屏幕原点。预览有留白或裁剪时，先扣除相应偏移。不要固定假设 Retina
+倍率为 2，也不要把一个屏幕的比例用于另一屏。布局/分辨率改变后重新获取显示器和截图。
+
+JPEG `quality` 不改变分辨率。录制宽高可能含编码补边，也不携带当前截图的完整坐标
+映射；agent 根据录屏内容执行操作前应重新截图，使用这次截图的元数据。
+上述定义和例子同时写入初始化 `instructions`、`computer://guide` 和 `computer_use`
+prompt；各工具及其坐标参数 schema 也明确说明单位。
 
 ## 通过 MCP 录制视频
 

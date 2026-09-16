@@ -41,6 +41,8 @@ class DisplayInfo(_DisplayMetadata):
 
 @final
 class Point2D(TypedDict):
+    """Global mouse position: macOS logical points or Windows physical pixels."""
+
     x: int
     y: int
 
@@ -69,7 +71,8 @@ class CaptureHandle(ABC):
 class BGRAPack(TypedDict):
     """Copied BGRA pixels, independent of capture lifetime.
 
-    Dimensions are in pixels. bytes_per_row is the stride, including any padding;
+    Dimensions are image pixels on both platforms, not macOS logical points.
+    bytes_per_row is the stride, including any padding;
     data contains bytes_per_row * height bytes.
     """
 

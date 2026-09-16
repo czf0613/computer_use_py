@@ -36,7 +36,11 @@ class RecordingHandle(ABC):
 @final
 @dataclass(frozen=True)
 class RecordingResult:
-    """Metadata for a successfully finalized recording."""
+    """Metadata for a successfully finalized recording.
+
+    width/height are output image pixels on both platforms, with right/bottom
+    padding to even dimensions when needed; they are not mouse input units.
+    """
 
     path: Path
     size_bytes: int
