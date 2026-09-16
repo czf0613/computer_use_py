@@ -5,6 +5,7 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -49,7 +50,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run --no-sync python -c "import os,platform,sys,sysconfig; print(platform.machine()); assert sysconfig.get_platform() == os.environ['EXPECTED_PLATFORM']; before=getattr(sys,'_is_gil_enabled',lambda:True)(); import scapkit_computer_use.screen_capture_kit._scapkit; assert not sysconfig.get_config_var('Py_GIL_DISABLED') or (not before and not sys._is_gil_enabled())"
       - name: Test without desktop, input or audio acquisition
-        run: uv run --no-sync pytest tests/test_windows_backend.py tests/test_async_safety.py tests/test_recording.py
+        run: uv run --no-sync pytest tests/test_windows_backend.py tests/test_async_safety.py tests/test_recording.py tests/test_release_artifacts.py
       - name: Optional MCP with fake devices
         if: matrix.mcp
         shell: pwsh

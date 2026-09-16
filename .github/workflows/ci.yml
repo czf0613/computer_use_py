@@ -114,6 +114,7 @@ jobs:
             tests/test_native_recording.py \
             tests/test_recording_writer.py \
             tests/test_modifier_lifecycle.py \
+            tests/test_release_artifacts.py \
             tests/test_process.py
       - name: Install optional MCP dependencies and test protocol without desktop access
         # MCP -> PyJWT[crypto] -> cryptography -> CFFI rejects CPython 3.13t.

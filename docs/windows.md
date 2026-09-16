@@ -5,6 +5,11 @@ H.264/AAC MP4 录制。运行库只使用 Windows 系统接口；不依赖 FFmpe
 当前版本尚未发布。目标为 Windows 10 22H2 / Windows 11 23H2 及以后的 x64、ARM64，
 实际设备验证范围见文末。
 
+0.1.2 发布流程从统一 sdist 构建 Windows x64 / ARM64 wheels，每种架构覆盖
+CPython 3.10–3.14 和 3.13t/3.14t；在同架构 runner 上安装并验证导入、ABI、PE 架构与
+无 GIL 状态。可通过手动预检先生成 artifact，正式 PyPI 上传由 Release 发布事件触发。
+流程见 [CI 与 PyPI 发布](releasing.md)；构建/导入检查不等于真实桌面验收。
+
 ## 构建
 
 需要 CPython 3.10+、uv、MSVC C++ 工具链和 Windows SDK（本机使用 10.0.26100.0）。

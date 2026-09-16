@@ -3,7 +3,8 @@
 跨平台桌面自动化 Python 库，提供屏幕截图、屏幕与系统声音录制、鼠标控制、键盘输入、剪贴板和 subprocess 操作。
 
 当前支持 macOS；库的最低系统版本为 macOS 13.0。
-官方预编译 wheel 仅提供 macOS 15+ arm64 版本，这不是源码安装的系统或架构限制。
+已发布的官方预编译 wheel 为 macOS 15+ arm64；0.1.2 发布流程新增 Windows x64/ARM64
+wheel，这不是 macOS 源码安装的系统或架构限制。
 当前源码新增 Windows x64 / ARM64 原生后端，使用 Windows 系统 API 完成键鼠、
 双屏截图、剪贴板及 H.264/AAC 录制，不依赖 FFmpeg 或显卡厂商 SDK。
 目前本机验证为 Windows 11 x64；Windows 10 和 ARM64 的运行验证仍需对应设备。
