@@ -3,8 +3,8 @@
 库最低支持 macOS 13.0，源码构建默认使用此部署目标，
 不限制 CPU 架构。官方 wheel 仅提供 macOS 15+ arm64 版本，CI 运行于 macOS
 15 / 26 arm64；这是发行与验证范围，不是库本身的系统或架构限制。旧系统和 Intel
-Mac 的实际运行尚未验证。Windows 原生扩展尚未实现，源码安装仅提供纯 Python
-subprocess 功能。最低 Python 版本为 3.10，
+Mac 的实际运行尚未验证。Windows 原生扩展构建与验证参见 [Windows 后端](windows.md)。
+最低 Python 版本为 3.10，
 free-threaded ABI 从 CPython 3.13 开始单独构建。3.10 普通解释器本身仍有 GIL。
 
 ## 本地构建

@@ -145,6 +145,10 @@ class Device:
                     "fps": result.fps,
                 },
             }
+            for field in ("frames_written", "frames_dropped"):
+                value = getattr(result, field, None)
+                if value is not None:
+                    self._recording_info["result"][field] = value
         except Exception as error:
             self._recording_info = {
                 **self._recording_info,
@@ -193,11 +197,11 @@ class Device:
         await finish(asyncio.create_task(close()))
 
     def require_desktop(self, permission: str | None = None) -> None:
-        if self.system != "Darwin":
+        if self.system not in {"Darwin", "Windows"}:
             raise NotImplementedError(
-                "Desktop control is currently available only on macOS; subprocess tools remain available."
+                "Desktop control requires macOS or Windows; subprocess tools remain available."
             )
-        if permission and not self.computer.check_permission(permission):
+        if permission and self.system == "Darwin" and not self.computer.check_permission(permission):
             raise PermissionError(
                 f"Missing {permission} permission. Ask the user to enable it for the server's host application "
                 "in macOS System Settings > Privacy & Security, then retry. No permission was requested automatically."
@@ -213,11 +217,15 @@ class Device:
                 }
             return {
                 "platform": self.system,
-                "desktop_supported": self.system == "Darwin",
+                "desktop_supported": self.system in {"Darwin", "Windows"},
                 "permissions": permissions,
-                "coordinate_unit": "global display points",
+                "coordinate_unit": self.coordinate_unit,
                 "command_environment": "fresh system shell environment plus explicit overrides",
             }
+
+    @property
+    def coordinate_unit(self):
+        return "physical_pixel" if self.system == "Windows" else "global display points"
 
     async def invoke(self, name, *args, permission=None, **kwargs):
         async with self.lock:
@@ -317,7 +325,7 @@ class Device:
                     "image_height": height,
                     "points_per_pixel_x": display["width"] / width,
                     "points_per_pixel_y": display["height"] / height,
-                    "coordinate_unit": "global display points",
+                    "coordinate_unit": self.coordinate_unit,
                 }
             finally:
                 if handle is None:

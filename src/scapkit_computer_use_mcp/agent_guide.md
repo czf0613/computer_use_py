@@ -2,7 +2,7 @@
 
 This server controls the computer where it runs. Start with `device_info`, then
 `list_displays`, then `screenshot`. Do not assume it is the same computer as your
-client. Windows currently exposes subprocess execution only.
+client. macOS and Windows expose desktop tools when the native backend is installed.
 
 ## Observe, act, verify
 
@@ -13,7 +13,7 @@ client. Windows currently exposes subprocess execution only.
 2. Read `list_displays`; select a current `display_id`. A missing screenshot
    display_id means the main display. Display layouts can change.
 3. Use `screenshot` to see the actual screen. Its image is JPEG; its structured
-   result describes the display origin, point dimensions and actual image size.
+   result describes the display origin, dimensions in input units and actual image size.
 4. Choose a small action using the visible evidence. Use `click`, `move_mouse`,
    `drag`, `scroll`, `press_key`, or `type_text`.
 5. Take another screenshot to verify the outcome. A successful tool call means
@@ -21,7 +21,9 @@ client. Windows currently exposes subprocess execution only.
 
 ## Coordinates
 
-Mouse tools accept integer **global display points**, with x increasing rightward
+Mouse tools accept integer **global input coordinates**: macOS display points,
+Windows physical pixels. Read `coordinate_unit` from `device_info` and screenshots.
+Coordinates increase rightward
 and y downward. Display origins may be negative. Screenshot locations are pixels
 relative to that image, not global points. Convert using the screenshot result:
 
@@ -34,21 +36,29 @@ If your client rescales the displayed image, first map back to the original
 `image_width`/`image_height`. Click inside the display bounds, not on its right
 or bottom exclusive boundary.
 
+Windows UI scaling (such as 150% or 200%) is separate from screenshot-to-input
+conversion. Do not multiply physical coordinates by UI scaling. A point can be
+inside the virtual desktop's bounding rectangle but outside both actual displays.
+
 ## Input
 
 - `click` moves and clicks as one serialized action. `hold_seconds` performs a
-  long press. `drag` takes explicit start and end global points.
+  long press. `drag` takes explicit start and end global input coordinates.
 - `press_key` takes a named key such as `a`, `return`, `escape`, `tab`, `space`,
   `delete` (backspace), `forward_delete`, `left`, `pageup`, or `f1` through `f20`.
   Modifier names: `command`, `shift`, `option`, `control`, `fn`; `win` and `alt`
   are aliases for command and option on macOS. Example: key `c`, modifiers
   `["command"]` copies; `v` with `["command"]` pastes.
+  On Windows use `control` for Ctrl shortcuts; `win`/`command` mean the Windows
+  key and `option`/`alt` mean Alt. Windows does not support a generic `fn` key.
 - `type_text` pastes Unicode text into the focused control. It overwrites the
   system clipboard and does not restore its old contents. Click/focus first.
   If cancelled, an in-flight clipboard write finishes before the next action;
   the cancelled operation does not continue to paste.
 - `scroll` direction describes the direction the **content moves**, following
-  macOS natural scrolling. Distance is positive lines. Verify visually.
+  macOS natural scrolling. The Windows backend converts native wheel direction
+  internally. On Windows distance counts wheel steps; system/application scroll
+  settings determine the number of visible lines. Verify visually.
 - Actions are serialized within one server. An observe/action/verify sequence
   is not a transaction; use one controlling agent and one server worker per device.
   Low-level key-down/button-down handles are deliberately not exposed.
@@ -57,11 +67,17 @@ or bottom exclusive boundary.
 
 Use `start_recording` with a new `output_path` on the **server computer** and an
 optional `display_id` (omitted means main). The parent directory must exist;
-existing files are never replaced. Recording requires macOS 13+, ScreenCapture
-permission and hardware H.264 support. It saves QuickTime-compatible H.264/AAC
+existing files are never replaced. macOS requires ScreenCapture permission and
+hardware H.264 support. Windows asks Media Foundation to use hardware encoding
+but permits software fallback. Both save H.264/AAC
 MP4, including system playback audio and never the microphone. Default `fps` is
-30 and `video_quality` is 0.75 (0..1); `null` uses the encoder's quality defaults.
-Quality controls compression without prescribing a resolution-specific bitrate.
+30 and `video_quality` is 0.75 (0..1).
+macOS quality uses VideoToolbox; Windows quality selects a bitrate based on
+resolution and frame rate. `null` uses the platform's default policy.
+Windows captures the playback endpoint selected at startup, not microphone
+input or every independently routed audio device. Under encoder overload it
+drops video frames while preserving elapsed time and audio; Windows stop results
+include `frames_written` and `frames_dropped`.
 
 The start result provides a `recording_id`. Only one recording can be active per
 server; screenshots, input and command tools remain available between start and

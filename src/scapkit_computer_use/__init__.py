@@ -72,15 +72,15 @@ _DESKTOP_EXPORTS = frozenset(__all__) - {
 _RECORDING_EXPORTS = frozenset(
     {"RecordingHandle", "RecordingResult", "start_recording", "stop_recording"}
 )
-if platform.system() != "Darwin":
+if platform.system() not in {"Darwin", "Windows"}:
     __all__ = [name for name in __all__ if name not in _DESKTOP_EXPORTS]
 
 
 def __getattr__(name: str):
-    # Subprocess execution is pure Python and does not need the macOS extension.
+    # Subprocess execution is pure Python and does not need the desktop extension.
     if name in _DESKTOP_EXPORTS:
-        if platform.system() != "Darwin":
-            raise NotImplementedError(f"{name} requires the macOS desktop extension")
+        if platform.system() not in {"Darwin", "Windows"}:
+            raise NotImplementedError(f"{name} requires a macOS or Windows desktop extension")
         if name in _RECORDING_EXPORTS:
             return getattr(import_module(".recording", __name__), name)
         suffix = "._scapkit" if name in {"list_displays", "get_mouse_position"} else ""
@@ -103,6 +103,8 @@ def check_permission(
     Args:
         permission_type: "ScreenCapture" or "Accessibility".
     """
+    if permission_type not in {"ScreenCapture", "Accessibility"}:
+        raise ValueError("unknown permission type")
     if platform.system() != "Darwin":
         return True
 

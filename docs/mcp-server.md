@@ -116,8 +116,8 @@ Retina、负坐标显示器和客户端缩放。服务不会向 agent 暴露 nat
 | `run_subprocess` | 执行命令并返回状态码、两路文本和截断标记 |
 
 macOS 缺少 ScreenCapture / Accessibility 权限时，工具会返回明确错误，由用户在
-系统设置为运行服务的终端或宿主应用授权。Windows 目前只注册 `device_info` 和
-`run_subprocess`，不向 agent 宣称尚未实现的桌面控制能力。Windows 实机行为尚未验证。
+系统设置为运行服务的终端或宿主应用授权。Windows 原生后端现已注册桌面工具，
+坐标使用虚拟桌面物理像素，权限和平台限制见 [Windows 后端](windows.md)。
 
 `run_subprocess` 使用基础库的文本流并并发排空 stdout/stderr，默认每路保留 20,000
 字符（最高 100,000），超过后丢弃多余输出并标明截断。默认执行时限 30 秒（最高 120），
@@ -152,10 +152,12 @@ print(stopped.structured_content["result"])
 ```
 
 文件保存在**运行服务的电脑**上，父目录必须存在，已有文件不会覆盖；工具不传输视频内容。
-视频为 VideoToolbox 硬件 H.264、音频为系统播放声音的 AAC，不采集麦克风。
+macOS 视频为 VideoToolbox 硬件 H.264；Windows 使用 Media Foundation，允许软件回退。
+音频为系统播放声音的 AAC，不采集麦克风。
 `fps` 默认 30，`video_quality` 默认 0.75；质量接受 0～1 的有限数值，显式 `null`
-（Python 中为 `None`）保留编码器默认策略。质量不设固定码率。需要 macOS 13+ 和
-屏幕录制权限，编码细节见 [录制接口](recording.md)。
+（Python 中为 `None`）使用平台默认策略。macOS 使用质量属性，Windows 映射到目标码率。
+Windows 过载丢帧并保持真实时间轴，停止结果附带写入/丢弃帧数。
+编码细节见 [录制接口](recording.md) 和 [Windows 后端](windows.md)。
 
 每个服务同时管理一段录制，所有客户端共享状态。`start_recording` 等首帧就绪后返回；
 `stop_recording` 等 MP4 收尾完成后返回，`result` 包含 `path`、`size_bytes`、

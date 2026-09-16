@@ -4,7 +4,10 @@
 
 当前支持 macOS；库的最低系统版本为 macOS 13.0。
 官方预编译 wheel 仅提供 macOS 15+ arm64 版本，这不是源码安装的系统或架构限制。
-Windows 目前提供纯 Python subprocess 接口（源码安装）；桌面控制扩展仍在开发中。
+当前源码新增 Windows x64 / ARM64 原生后端，使用 Windows 系统 API 完成键鼠、
+双屏截图、剪贴板及 H.264/AAC 录制，不依赖 FFmpeg 或显卡厂商 SDK。
+目前本机验证为 Windows 11 x64；Windows 10 和 ARM64 的运行验证仍需对应设备。
+这些改动尚未发布到 PyPI。安装与差异见 [Windows 后端](docs/windows.md)。
 
 ## 安装
 
@@ -44,8 +47,8 @@ uv run --extra mcp scapkit-mcp
 MCP 也提供 `start_recording`、`stop_recording`、`recording_status`，将视频保存到服务端路径。
 服务自动提供 agent instructions、操作指南 resource 和 prompt，说明权限、工具使用顺序、
 Retina 坐标换算及操作后的验证流程。
-可选 MCP 模块支持常规 Python 3.10+ 和 3.14t；上游 CFFI 不支持 3.13t，
-这不影响基础库的 3.13t 支持。
+可选 MCP 模块支持常规 Python 3.10+；macOS 也测试 3.14t。上游 CFFI 不支持
+3.13t，当前 Windows MCP 的 pywin32 依赖也缺少 3.14t 安装包。这不影响基础库的无 GIL 支持。
 
 详见 [MCP 安装、客户端配置与工具说明](docs/mcp-server.md) 和
 [agent 操作指南](src/scapkit_computer_use_mcp/agent_guide.md)。

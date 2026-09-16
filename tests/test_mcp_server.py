@@ -320,20 +320,36 @@ async def test_cancelling_during_capture_startup_releases_late_handle(component)
 
 
 @pytest.mark.asyncio
-async def test_windows_does_not_advertise_unimplemented_desktop_tools(component):
+async def test_windows_advertises_desktop_tools_with_physical_coordinates(component):
     component.device.system = "Windows"
     async with Client(
         component.package.create_server(device=component.device)
     ) as client:
         tools = {tool.name for tool in (await client.list_tools()).tools}
         info = await client.call_tool("device_info", {})
-    assert tools == {"device_info", "run_subprocess"}
-    assert not info.structured_content["desktop_supported"]
+    assert {"device_info", "run_subprocess", "screenshot", "drag"} <= tools
+    assert info.structured_content["desktop_supported"]
+    assert info.structured_content["coordinate_unit"] == "physical_pixel"
     assert info.structured_content["permissions"] is None
 
 
 @pytest.fixture
 def command_client_config(component, tmp_path, monkeypatch):
+    if sys.platform == "win32":
+        import scapkit_computer_use
+        from scapkit_computer_use import process
+
+        # Protocol tests use a disposable child environment; platform shell
+        # bootstrap itself is covered in test_process.py.
+        async def environment():
+            result = process._windows_system_environment()
+            result["SCAPKIT_MCP_PROFILE"] = "from-profile"
+            return result
+
+        monkeypatch.setattr(process, "_shell_environment", environment)
+        component.device.computer = scapkit_computer_use
+        component.device.system = "Windows"
+        return component.package.create_server(device=component.device)
     import pwd
 
     import scapkit_computer_use
@@ -394,8 +410,32 @@ async def test_command_timeout_reaps_child(command_client_config, tmp_path):
     assert result.is_error
     assert "exceeded" in result.content[0].text
     pid = int(pidfile.read_text())
-    with pytest.raises(ProcessLookupError):
+    assert not _process_alive(pid)
+
+
+def _process_alive(pid):
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            assert kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
+    try:
         os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def test_cli_rejects_unauthenticated_remote_bind_without_starting_server(
@@ -494,6 +534,7 @@ async def test_cancelled_clipboard_write_finishes_before_next_input(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="Existing subprocess API guarantees process-group cleanup only on POSIX")
 async def test_command_timeout_stops_descendants_even_with_redirected_pipes(
     command_client_config, tmp_path
 ):
@@ -518,9 +559,7 @@ async def test_command_timeout_stops_descendants_even_with_redirected_pipes(
     try:
         deadline = time.monotonic() + 1
         while True:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            if not _process_alive(pid):
                 break
             assert time.monotonic() < deadline, "descendant survived command timeout"
             await asyncio.sleep(0.01)

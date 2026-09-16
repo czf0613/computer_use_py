@@ -28,7 +28,7 @@ Coordinate = Annotated[
         strict=True,
         ge=-(2**31),
         le=2**31 - 1,
-        description="Global display coordinate in points, not screenshot pixels",
+        description="Global input coordinate: macOS points or Windows physical pixels; convert screenshot coordinates first",
     ),
 ]
 Modifier = Literal["command", "shift", "option", "control", "fn", "win", "alt"]
@@ -143,7 +143,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
                 max_output_chars,
             )
 
-    if device.system != "Darwin":
+    if device.system not in {"Darwin", "Windows"}:
         return server
 
     @tool()
@@ -163,14 +163,14 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         ]
         | None = 0.75,
     ) -> dict[str, Any]:
-        """Start recording a display (default main) and system playback audio, never the microphone. Requires macOS 13+, ScreenCapture permission and hardware H.264. Saves H.264/AAC MP4; existing files are never replaced. Quality defaults to 0.75; null keeps encoder defaults, without forcing bitrate. Returns recording_id after the first frame. Only one recording per server; other tools remain available. Always stop_recording when finished; recording_status recovers an ID after disconnect."""
+        """Start recording a display (default main) and system playback audio, never the microphone. macOS requires ScreenCapture permission and hardware H.264; Windows prefers hardware Media Foundation encoding and permits software fallback. Saves H.264/AAC MP4; existing files are never replaced. Quality defaults to 0.75: macOS encoder quality, Windows bitrate policy; null uses platform defaults. Windows drops overdue frames while preserving elapsed time. Returns recording_id after the first frame. Only one recording per server; always stop_recording when finished. recording_status recovers an ID after disconnect."""
         return await device.start_recording(output_path, display_id, fps, video_quality)
 
     @tool()
     async def stop_recording(
         recording_id: Annotated[str, Field(min_length=1)],
     ) -> dict[str, Any]:
-        """Stop this recording and finish the server-local MP4; return path, size_bytes, duration_s, width, height and fps in result. Repeating the same ID returns the saved result until the next recording starts. An older ID cannot stop a newer recording. Does not transfer the video to the client."""
+        """Stop this recording and finish the server-local MP4; return path, size_bytes, duration_s, width, height and fps in result, plus Windows frames_written/frames_dropped. Repeating the same ID returns the saved result until the next recording starts. An older ID cannot stop a newer recording. Does not transfer the video to the client."""
         return await device.stop_recording(recording_id)
 
     @tool(read_only=True)
@@ -180,7 +180,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     @tool(read_only=True)
     async def list_displays() -> list[dict[str, Any]]:
-        """List display IDs, main display, global origins and dimensions in points plus Retina scale. Use before screenshot or mouse input."""
+        """List display IDs, main display, global origins and dimensions in input units plus pixel scale. Use before screenshot or mouse input."""
         return await device.invoke("list_displays")
 
     @tool(read_only=True)
@@ -194,7 +194,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
             float, Field(ge=0.1, le=30, allow_inf_nan=False)
         ] = 5,
     ) -> CallToolResult:
-        """Observe a display as a JPEG image. Requires ScreenCapture permission. Returns actual pixel dimensions and points_per_pixel_x/y: global x = display.x + image_x * points_per_pixel_x (likewise y). Capture is stopped after this call; no persistent handle is exposed. timeout_seconds bounds waiting for the first frame after native startup."""
+        """Observe a display as a JPEG image. Requires ScreenCapture permission on macOS. Returns actual pixel dimensions and points_per_pixel_x/y: global x = display.x + image_x * points_per_pixel_x (likewise y). Capture is stopped after this call; no persistent handle is exposed. timeout_seconds bounds waiting for the first frame after native startup."""
         data, metadata = await device.screenshot(display_id, quality, timeout_seconds)
         return CallToolResult(
             content=[
@@ -208,12 +208,12 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     @tool(read_only=True)
     async def get_mouse_position() -> dict[str, Any]:
-        """Read the cursor's current global point coordinates."""
+        """Read the cursor's current global input coordinates."""
         return await device.invoke("get_mouse_position")
 
     @tool()
     async def move_mouse(x: Coordinate, y: Coordinate) -> dict[str, Any]:
-        """Move the cursor to global points within a display. Convert screenshot pixels first. Requires Accessibility."""
+        """Move the cursor to global input coordinates within a display. Convert screenshot pixels first. Requires Accessibility on macOS."""
         await device.move(x, y)
         return {"ok": True}
 
@@ -224,7 +224,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         button: Literal["left", "right"] = "left",
         hold_seconds: Annotated[float, Field(ge=0, le=5, allow_inf_nan=False)] = 0,
     ) -> dict[str, Any]:
-        """Move and click as one serialized action at global points. hold_seconds > 0 makes a long press. Requires Accessibility. Take a screenshot afterward to verify the effect."""
+        """Move and click as one serialized action at global input coordinates. hold_seconds > 0 makes a long press. Requires Accessibility on macOS. Take a screenshot afterward to verify the effect."""
         await device.click(x, y, button, hold_seconds)
         return {"ok": True}
 
@@ -232,7 +232,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
     async def drag(
         from_x: Coordinate, from_y: Coordinate, to_x: Coordinate, to_y: Coordinate
     ) -> dict[str, Any]:
-        """Drag the left mouse button from start to destination in global points. Requires Accessibility; the button is released even if cancelled."""
+        """Drag the left mouse button from start to destination in global input coordinates. Requires Accessibility on macOS; the button is released even if cancelled."""
         await device.drag(from_x, from_y, to_x, to_y)
         return {"ok": True}
 
@@ -241,7 +241,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         direction: Literal["up", "down", "left", "right"],
         distance: Annotated[int, Field(ge=1, le=100)] = 3,
     ) -> dict[str, Any]:
-        """Scroll at the current cursor position. Direction describes CONTENT movement (macOS natural scrolling); distance is positive lines. Requires Accessibility."""
+        """Scroll at the current cursor position. Direction describes CONTENT movement (macOS natural scrolling); distance is positive lines. Requires Accessibility on macOS."""
         await device.invoke(
             "mouse_scroll", direction, distance, permission="Accessibility"
         )
@@ -252,7 +252,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         key: Annotated[str, Field(min_length=1)],
         modifiers: list[Modifier] | None = None,
     ) -> dict[str, Any]:
-        """Press and release a named key, optionally with modifiers. Examples: return; escape; c with ['command']. Use type_text for arbitrary Unicode text. Requires Accessibility."""
+        """Press and release a named key, optionally with modifiers. Examples: return; escape; c with ['command']. Use type_text for arbitrary Unicode text. Requires Accessibility on macOS."""
         await device.invoke(
             "keyboard_click", key, set(modifiers or []), permission="Accessibility"
         )
@@ -262,7 +262,7 @@ def create_server(*, device: Device | None = None) -> MCPServer:
     async def type_text(
         text: Annotated[str, Field(max_length=100000)],
     ) -> dict[str, Any]:
-        """Paste Unicode text into the focused control using the clipboard. Overwrites the clipboard. Focus the target first. Requires Accessibility."""
+        """Paste Unicode text into the focused control using the clipboard. Overwrites the clipboard. Focus the target first. Requires Accessibility on macOS."""
         await device.type_text(text)
         return {"ok": True, "clipboard_overwritten": True}
 

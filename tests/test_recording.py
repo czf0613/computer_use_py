@@ -52,7 +52,7 @@ def test_recording_module_exposes_public_api():
     assert recording.RecordingResult is not None
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS desktop package")
+@pytest.mark.skipif(sys.platform not in {"darwin", "win32"}, reason="native desktop package")
 def test_public_packages_export_the_recording_api():
     recording = _recording_module()
     package = importlib.import_module("scapkit_computer_use")
@@ -116,8 +116,6 @@ async def test_start_rejects_invalid_arguments_before_native_dispatch(
     valid_path = tmp_path / "valid.mp4"
     existing_path = tmp_path / "existing.mp4"
     existing_path.write_bytes(b"caller data")
-    dangling_path = tmp_path / "dangling.mp4"
-    dangling_path.symlink_to(tmp_path / "absent.mp4")
     missing_parent_path = tmp_path / "missing" / "recording.mp4"
 
     cases = [
@@ -138,7 +136,6 @@ async def test_start_rejects_invalid_arguments_before_native_dispatch(
         ((1, "bad\0name.mp4", 30), ValueError),
         ((1, missing_parent_path, 30), FileNotFoundError),
         ((1, existing_path, 30), FileExistsError),
-        ((1, dangling_path, 30), FileExistsError),
     ]
 
     for args, error_type in cases:
@@ -147,6 +144,21 @@ async def test_start_rejects_invalid_arguments_before_native_dispatch(
 
     assert native.calls == []
     assert existing_path.read_bytes() == b"caller data"
+
+
+@pytest.mark.asyncio
+async def test_start_rejects_dangling_symlink(fake_native, tmp_path):
+    recording, native = fake_native
+    dangling = tmp_path / "dangling.mp4"
+    try:
+        dangling.symlink_to(tmp_path / "absent.mp4")
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            pytest.skip("Creating symlinks is not permitted for this Windows account")
+        raise
+    with pytest.raises(FileExistsError):
+        await recording.start_recording(1, dangling)
+    assert native.calls == []
 
 
 @pytest.mark.asyncio

@@ -12,22 +12,29 @@ __all__ = [
 ]
 
 
+class _DisplayMetadata(TypedDict, total=False):
+    coordinate_unit: str
+    ui_scale_factor: float
+    pixel_width: int
+    pixel_height: int
+
+
 @final
-class DisplayInfo(TypedDict):
+class DisplayInfo(_DisplayMetadata):
     """Information about a display."""
 
     id: int
-    """CGDirectDisplayID."""
+    """macOS CGDirectDisplayID or a process-local Windows display ID."""
     x: int
-    """X origin in macOS global point coordinates."""
+    """Global X origin: macOS points or Windows physical pixels."""
     y: int
-    """Y origin in macOS global point coordinates."""
+    """Global Y origin: macOS points or Windows physical pixels."""
     width: int
-    """Width in points (logical, not physical pixels)."""
+    """Width in the platform's input coordinate units."""
     height: int
-    """Height in points (logical, not physical pixels)."""
+    """Height in the platform's input coordinate units."""
     scale_factor: float
-    """Retina scaling factor (e.g. 2.0 for HiDPI). Physical pixels = points * scale_factor."""
+    """Physical pixels per input unit; Windows uses 1.0, independently of UI DPI."""
     is_main: bool
     """Whether this is the main display."""
 

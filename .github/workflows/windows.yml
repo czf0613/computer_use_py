@@ -1,0 +1,67 @@
+name: Windows backend
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, architecture: x64, python: '3.10', mcp: true}
+          - {os: windows-latest, architecture: x64, python: '3.14', mcp: true}
+          - {os: windows-latest, architecture: x64, python: '3.13t', mcp: false}
+          - {os: windows-latest, architecture: x64, python: '3.14t', mcp: false}
+          - {os: windows-11-arm, architecture: arm64, python: '3.14', mcp: true}
+          - {os: windows-11-arm, architecture: arm64, python: '3.14t', mcp: false}
+    env:
+      SCAPKIT_TESTING: '1'
+      PYTHONFAULTHANDLER: '1'
+      EXPECTED_PLATFORM: ${{ matrix.architecture == 'x64' && 'win-amd64' || 'win-arm64' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+      - name: Bootstrap uv
+        run: python -m pip install uv
+      - name: Build with synthetic test hooks
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          uv sync --frozen --python $python
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync setup.py build_ext --inplace --force
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync python -c "import os,platform,sys,sysconfig; print(platform.machine()); assert sysconfig.get_platform() == os.environ['EXPECTED_PLATFORM']; before=getattr(sys,'_is_gil_enabled',lambda:True)(); import scapkit_computer_use.screen_capture_kit._scapkit; assert not sysconfig.get_config_var('Py_GIL_DISABLED') or (not before and not sys._is_gil_enabled())"
+      - name: Test without desktop, input or audio acquisition
+        run: uv run --no-sync pytest tests/test_windows_backend.py tests/test_async_safety.py tests/test_recording.py
+      - name: Optional MCP with fake devices
+        if: matrix.mcp
+        shell: pwsh
+        run: |
+          uv sync --frozen --extra mcp --python (Get-Command python).Source
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync pytest tests/test_mcp_server.py tests/test_mcp_recording.py
+      - name: Build production wheel without synthetic hooks
+        shell: pwsh
+        env:
+          SCAPKIT_TESTING: '0'
+        run: |
+          uv run --no-sync setup.py build_ext --inplace --force
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --no-sync python -c "from scapkit_computer_use.screen_capture_kit import _scapkit; assert not any(n.startswith('_test_') for n in dir(_scapkit))"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv build --wheel --no-build-isolation --python .venv/Scripts/python.exe

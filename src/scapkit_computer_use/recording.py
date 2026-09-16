@@ -44,10 +44,12 @@ class RecordingResult:
     width: int
     height: int
     fps: int
+    frames_written: int | None = None
+    frames_dropped: int | None = None
 
 
 def _load_native() -> Any:
-    """Resolve the optional macOS extension only when an operation is called."""
+    """Resolve the platform extension only when an operation is called."""
     return import_module(".screen_capture_kit._scapkit", __package__)
 
 
@@ -95,6 +97,8 @@ def _result_from_native(data: Any) -> RecordingResult:
         width=data["width"],
         height=data["height"],
         fps=data["fps"],
+        frames_written=data.get("frames_written"),
+        frames_dropped=data.get("frames_dropped"),
     )
 
 
@@ -107,7 +111,7 @@ async def start_recording(
 ) -> RecordingHandle:
     """Start recording one display and its system audio to an MP4 file.
 
-    Startup waits for the native stream, hardware encoder, writer, and initial
+    Startup waits for the native stream, encoder, writer, and initial
     complete video frame before returning. If startup is cancelled, this call
     waits for the native worker and aborts any late handle before propagating
     cancellation.
@@ -115,9 +119,12 @@ async def start_recording(
     Args:
         display_id: A display ID returned by ``list_displays()``.
         output_path: New MP4 path. Its parent must exist and the target must not.
-        fps: Fixed positive frame rate representable as a signed 32-bit integer.
+        fps: Target frame rate. Windows drops frames under encoder overload while
+            retaining elapsed media time; macOS retains its fixed-rate policy.
         video_quality: Compression quality from 0.0 to 1.0, default 0.75. Higher
-            values preserve more detail; None leaves selection to VideoToolbox.
+            values preserve more detail. macOS uses VideoToolbox quality;
+            Windows maps this to a resolution/frame-rate-dependent bitrate.
+            None uses the platform's default policy.
 
     Returns:
         An opaque handle that must be passed to :func:`stop_recording`.

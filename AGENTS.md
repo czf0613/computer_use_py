@@ -7,9 +7,11 @@ including free-threaded CPython 3.13/3.14. The library requires macOS
 13.0; source builds default to that deployment target and do not restrict CPU
 architecture. Official prebuilt wheels target **macOS 15+ arm64**; CI runs on
 macOS 15 / 26 arm64. Do not confuse this distribution policy with source
-compatibility or claim older macOS / Intel runtime verification. Windows source
-installs provide the pure-Python subprocess API only; desktop control is still
-unimplemented. Do not claim Windows desktop support or Windows runtime validation.
+compatibility or claim older macOS / Intel runtime verification. This source branch
+also implements a Windows backend targeting recent Windows 10/11 x64 and ARM64.
+Desktop runtime acceptance has run on Windows 11 x64 only; do not claim Windows 10
+or ARM64 runtime verification before it occurs. See `docs/windows.md` for evidence
+and limits. This does not change the published macOS wheel policy automatically.
 
 - `src/scapkit_computer_use/`: public Python API and async wrappers.
 - `src/scapkit_computer_use/process.py`: shell environment bootstrap, process
@@ -23,6 +25,8 @@ unimplemented. Do not claim Windows desktop support or Windows runtime validatio
 - `native_code/osx/src/`: `ext.c` module init, `control.c` input,
   `display.c` display queries, `capture.m` ScreenCaptureKit and frame encoding.
 - `native_code/osx/include/`: native declarations.
+- `native_code/windows/`: C++20 Win32 input, WGC/D3D11 capture, WIC JPEG,
+  WASAPI loopback and Media Foundation H.264/AAC/MP4. No FFmpeg or vendor SDK.
 - `tests/`: automated boundary/synthetic tests and opt-in desktop integration tests.
 - `docs/development.md`: build, testing, ownership and compatibility details.
 - `docs/releasing.md`: CI and PyPI release instructions.
@@ -86,6 +90,15 @@ instructions, the guide resource and prompt share the packaged `agent_guide.md`.
 The MCP dependency chain includes CFFI, which rejects CPython 3.13t. Test the
 optional server on ordinary Python 3.10+ and free-threaded 3.14+, while retaining
 all 3.13t base-library CI checks and wheels. Do not weaken the GIL assertions.
+Windows MCP currently also lacks a compatible pywin32 wheel for 3.14t; test its
+extra on ordinary Python, and retain the Windows base-library free-threaded checks.
+
+Windows offline tests are `tests/test_windows_backend.py`; they use generated
+pixels/PCM and event construction without desktop access. The opt-in acceptance
+harness `tests/manual/verify_windows.py --desktop` posts real input and records.
+Use `/W4` and `SCAPKIT_ANALYZE=1` for MSVC analysis. Windows coordinates are physical
+pixels; macOS coordinates remain points. Prefer hardware MF encoding, allow software
+fallback, bound application queues, and preserve timestamps when dropping frames.
 
 ## Native safety and conventions
 

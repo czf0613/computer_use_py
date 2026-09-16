@@ -5,6 +5,7 @@ CPython. Compound input operations are not transactions: callers must serialize
 overlapping input sequences to avoid interleaved mouse and keyboard events.
 """
 
+from . import _scapkit as _native
 from ._scapkit import (
     get_mouse_position,
     move_mouse as move_mouse_c,
@@ -25,6 +26,7 @@ from .types import Point2D, Vector2D, CaptureHandle, RecordingHandle, BGRAPack
 from ..recording import RecordingResult, start_recording, stop_recording
 from .keys import KEY_CODES, MODIFIER_FLAGS, MODIFIER
 import asyncio
+import sys
 from asyncio import subprocess
 from math import isfinite
 
@@ -41,7 +43,10 @@ def _resolve_key(key: str) -> int:
 def _resolve_flags(modifiers: set[MODIFIER] | None) -> int:
     flags = 0
     for mod in modifiers or []:
-        flags |= MODIFIER_FLAGS[mod]
+        try:
+            flags |= MODIFIER_FLAGS[mod]
+        except KeyError:
+            raise ValueError(f"unsupported modifier '{mod}' on this platform") from None
     return flags
 
 
@@ -50,13 +55,16 @@ async def move_mouse(
 ) -> None:
     """Move the mouse cursor to an absolute position.
 
-    Uses CGWarpMouseCursorPosition which teleports the cursor without
+    On macOS uses CGWarpMouseCursorPosition which teleports the cursor without
     generating mouse-move delta events. Applications that rely on raw
     mouse deltas (e.g. games with pointer lock) will NOT respond — use
     move_mouse_relative for those scenarios.
+    Windows submits absolute SendInput motion and routes smooth moves through
+    visible display seams. Its coordinates are physical pixels, including
+    negative origins; macOS coordinates are points.
 
     Args:
-        dest: Target position {"x": int, "y": int} in point coordinates.
+        dest: Target position {"x": int, "y": int} in global input coordinates.
         smooth: If True (default), interpolate with ease-in-out over duration_s.
                 If False, teleport instantly.
         duration_s: Duration of the smooth movement in seconds (default 0.5).
@@ -70,6 +78,20 @@ async def move_mouse(
 
 async def _smooth_move(dest: Point2D, duration_s: float, move) -> None:
 
+    start = get_mouse_position()
+    if sys.platform == "win32" and move in (_native.move_mouse, _native._drag_mouse):
+        path = _native._mouse_path(start["x"], start["y"], dest["x"], dest["y"])
+        points = [start, *path]
+        lengths = [((b["x"]-a["x"])**2 + (b["y"]-a["y"])**2)**0.5
+                   for a, b in zip(points, points[1:])]
+        total = sum(lengths) or 1
+        for point, length in zip(path, lengths):
+            await _smooth_segment(point, duration_s * length / total, move)
+        return
+    await _smooth_segment(dest, duration_s, move)
+
+
+async def _smooth_segment(dest: Point2D, duration_s: float, move) -> None:
     start = get_mouse_position()
     dx = dest["x"] - start["x"]
     dy = dest["y"] - start["y"]
@@ -92,13 +114,14 @@ async def move_mouse_relative(
 ) -> None:
     """Move the mouse by a relative offset, generating delta events.
 
-    Unlike move_mouse which uses CGWarpMouseCursorPosition, this posts
+    On macOS, unlike move_mouse which uses CGWarpMouseCursorPosition, this posts
     kCGEventMouseMoved events with deltaX/deltaY fields, making it
     compatible with applications that read raw mouse deltas (e.g. games
     with pointer lock).
+    Windows uses relative SendInput motion, subject to pointer acceleration.
 
     Args:
-        vector: Relative offset {"dx": int, "dy": int} in points.
+        vector: Relative offset {"dx": int, "dy": int} in platform input units.
         smooth: If True (default), interpolate the movement over duration_s
                 with ease-in-out. If False, post a single event immediately.
         duration_s: Duration of the smooth movement in seconds (default 0.5).
@@ -164,8 +187,11 @@ async def mouse_drag(dest: Point2D) -> None:
     the operation is cancelled. Callers must serialize overlapping input sequences.
 
     Args:
-        dest: Target position {"x": int, "y": int} in point coordinates.
+        dest: Target position {"x": int, "y": int} in global input coordinates.
     """
+    if sys.platform == "win32" and drag_mouse_c is _native._drag_mouse:
+        start = get_mouse_position()
+        _native._mouse_path(start["x"], start["y"], dest["x"], dest["y"])
     mouse_click_action("left", "down")
     try:
         await asyncio.sleep(0.05)
@@ -181,11 +207,12 @@ async def mouse_scroll(
     """Scroll the mouse wheel in the given direction.
 
     Direction describes which way the content moves, matching macOS natural
-    scrolling convention. Scrolls one line at a time with short delays.
+    scrolling convention. Windows inverts its native deltas internally. Scrolls
+    one line (macOS) or wheel step (Windows) at a time with short delays.
 
     Args:
         direction: "up", "down", "left", or "right".
-        distance: Number of lines to scroll (default 3).
+        distance: Lines on macOS or wheel steps on Windows (default 3).
     """
     for i in range(distance):
         mouse_scroll_c(direction, 1)
@@ -207,6 +234,8 @@ def keyboard_click_action(
     owns the entire down/up and modifier lifecycle, including failure cleanup.
     For example, an explicit Command hold uses ("command", "down", {"command"})
     and releases with ("command", "up"). High-level shortcuts do not release it.
+    Windows requires requested modifiers to be already held; this raw function
+    does not press them automatically. Use key_combo for managed modifiers.
 
     Args:
         key: Named key (e.g. "a", "return"). See keys.KEY_CODES for valid names.
@@ -252,12 +281,14 @@ async def keyboard_click(
 ) -> None:
     """Press and release a keyboard key (key-down, short delay, key-up).
 
-    Owns a private event source and a balanced modifier/key sequence. Only this
+    On macOS owns a private event source and a balanced modifier/key sequence. Only this
     operation's synthetic state is released, including on cancellation or failure;
     current physical keys and explicit low-level HID holds are preserved. Waits
     for the source's release events to be processed (up to one second), raising
     TimeoutError if delivery cannot be confirmed. Callers must still serialize
     compound desktop actions to avoid interleaving their effects.
+    Windows preallocates balanced releases, borrows held modifiers and checks
+    SendInput insertion. It has no private-source isolation or delivery acknowledgment.
 
     Args:
         key: Named key (e.g. "a", "return"). See keys.KEY_CODES for valid names.
@@ -294,11 +325,14 @@ async def key_combo(key: str, modifiers: set[MODIFIER]) -> None:
 
 
 async def set_clipboard(text: str) -> None:
-    """Copy text to the system clipboard via pbcopy.
+    """Copy Unicode text to the system clipboard.
 
     Args:
         text: The text to place on the clipboard.
     """
+    if sys.platform == "win32":
+        await asyncio.to_thread(_native.set_clipboard, text)
+        return
     proc = await subprocess.create_subprocess_exec(
         "pbcopy",
         stdin=subprocess.PIPE,
@@ -307,7 +341,9 @@ async def set_clipboard(text: str) -> None:
 
 
 async def get_clipboard() -> str:
-    """Read the current system clipboard text via pbpaste."""
+    """Read the current system clipboard text."""
+    if sys.platform == "win32":
+        return await asyncio.to_thread(_native.get_clipboard)
     proc = await subprocess.create_subprocess_exec(
         "pbpaste",
         stdout=subprocess.PIPE,
@@ -317,19 +353,19 @@ async def get_clipboard() -> str:
 
 
 async def clipboard_paste() -> None:
-    """Paste clipboard content into the active application (simulates Cmd+V)."""
-    await keyboard_click("v", {"command"})
+    """Paste into the active application: Cmd+V on macOS, Ctrl+V on Windows."""
+    await keyboard_click("v", {"control" if sys.platform == "win32" else "command"})
 
 
 async def start_capture(display_id: int) -> CaptureHandle:
-    """Start capturing a display via ScreenCaptureKit. Returns an opaque handle.
+    """Start display capture via the native platform backend; return an opaque handle.
 
     Cancellation does not interrupt native startup in the worker thread. If it
     completes after cancellation, the unclaimed handle is dropped and its native
     capsule destructor stops capture and releases resources automatically.
 
     Args:
-        display_id: The display ID from list_displays() (CGDirectDisplayID).
+        display_id: An active display ID from list_displays().
 
     Raises:
         ValueError: If display_id is not found.

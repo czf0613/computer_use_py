@@ -1,4 +1,5 @@
 from typing import Literal
+import sys
 
 MODIFIER = Literal["command", "shift", "option", "control", "fn", "win", "alt"]
 
@@ -108,3 +109,6 @@ KEY_CODES: dict[str, int] = {
     "volume_down": 73,
     "mute": 74,
 }
+
+if sys.platform == "win32":
+    from ._windows_keys import KEY_CODES, MODIFIER_FLAGS
