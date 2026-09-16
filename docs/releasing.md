@@ -35,7 +35,7 @@ GitHub 使用同名 environment `pypi`。发布 job 在 Linux 上执行官方 Py
 
 1. 修改 `pyproject.toml` 中的版本号并同步 `uv.lock`；选择 PyPI 上未使用的版本号。
 2. 运行本地安全测试，提交并推送到 `master`，等待 CI 成功。
-3. 从相应提交创建与版本号一致的 tag，例如版本 `0.1.2` 对应 `v0.1.2`。
+3. 从相应提交创建与版本号一致的 tag，例如版本 `0.2.0` 对应 `v0.2.0`。
 4. 在 GitHub 发布该 tag 的 Release。`release.published` 事件触发 `release.yml`。
 5. Workflow 验证 tag/版本、运行检查、生成 sdist、macOS 15+ arm64 与 Windows x64/ARM64 wheels；
    构建与验证全部成功后才上传 PyPI。失败时到 Actions 查看具体 job。
