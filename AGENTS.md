@@ -91,7 +91,10 @@ The MCP dependency chain includes CFFI, which rejects CPython 3.13t. Test the
 optional server on ordinary Python 3.10+ and free-threaded 3.14+, while retaining
 all 3.13t base-library CI checks and wheels. Do not weaken the GIL assertions.
 Windows MCP currently also lacks a compatible pywin32 wheel for 3.14t; test its
-extra on ordinary Python, and retain the Windows base-library free-threaded checks.
+extra on ordinary x64 Python, and retain the Windows base-library free-threaded checks.
+The MCP cryptography dependency lacks a Windows ARM64 wheel. Retain ARM64 base-library
+and wheel checks, but omit its optional MCP extra until upstream wheels are available.
+Do not build OpenSSL in CI to work around this optional dependency.
 
 Windows offline tests are `tests/test_windows_backend.py`; they use generated
 pixels/PCM and event construction without desktop access. The opt-in acceptance

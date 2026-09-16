@@ -81,4 +81,5 @@ DPI、上下错位和虚拟桌面外接矩形中的空白区都需要独立验�
 
 后续在对应设备/CI 补齐：Windows 10、ARM64 实机、长时间负载、HDR 色彩、多 GPU 热插拔、
 休眠恢复和更多键盘布局。当前 HDR 输出仅按 SDR 路径处理；拓扑/设备变更可能要求重启
-采集。Windows MCP 的 pywin32 依赖暂缺 3.14t 安装包，普通 Python MCP 已验证。
+采集。Windows MCP 的 pywin32 依赖暂缺 3.14t 安装包，cryptography 暂缺 ARM64 wheel；
+MCP 在 x64 普通 Python 上验证，ARM64 CI 保留基础库与 wheel 检查，不构建 OpenSSL。
