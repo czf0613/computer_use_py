@@ -23,6 +23,11 @@ CPython 3.13t/3.14t 使用单独 ABI，构建根据 `sysconfig` 显式设置 `Py
 切换 ABI、编译选项或测试 hooks 后必须强制重建。Windows MCP 的上游 pywin32 目前没有
 3.14t 安装包；使用普通 Python 运行 MCP，基础库仍可在无 GIL 解释器中运行。
 
+Windows ARM64 的 MCP 依赖 `cryptography==50.0.1` 也没有预编译 wheel，需要 Rust、
+MSVC 和 ARM64 OpenSSL 才能从源码安装。CI 从官方源码构建静态 OpenSSL，并校验
+下载文件的 SHA-256，再设置 `OPENSSL_DIR` / `OPENSSL_STATIC=1` 安装 MCP。
+这仅属于可选 MCP 的构建依赖，基础库的视频编解码仍使用系统 Media Foundation。
+
 ## 坐标和输入
 
 - Windows 全局输入坐标均为**虚拟桌面物理像素**，可以为负数。macOS 仍为 points。
@@ -152,8 +157,11 @@ PE 依赖检查只发现 Python、MSVC 运行时和 Windows 系统 DLL；MF DLL 
 
 MSVC `/W4` 编译通过；`/analyze` 剩余提示为 Python `PyArg_ParseTuple("s")` 的字符串
 终止契约无法被 SAL 推断，以及 Windows SDK 头文件内的批注问题。原生资源和返回值
-相关提示已处理。已配置 x64 / ARM64 CI，但尚未运行；本机未安装 ARM64 交叉编译器，
-本次交叉编译尝试未产出 ARM64 对象文件。
+相关提示已处理。GitHub Actions 已通过 x64 四种 Python 配置的基础库检查，以及普通
+Python 的 MCP 检查；ARM64 3.14 / 3.14t 已通过原生编译与合成测试，3.14t 生产 wheel
+构建也通过。ARM64 普通 Python 的 MCP 安装需要上述 OpenSSL 构建步骤。
+macOS 15 / 26 的 14 项 Python 矩阵也已通过。各次提交的完整结果以
+[GitHub Actions](https://github.com/czf0613/computer_use_py/actions) 为准。
 
-这是短时实测，不代表长时间性能或所有驱动兼容性。Windows 10、原生 ARM64、HDR、
+这是短时实测，不代表长时间性能或所有驱动兼容性。Windows 10、ARM64 桌面交互、HDR、
 其他键盘布局和第三方 OLE 文件拖放需对应环境补充验收。macOS 原生代码未在本机运行。
