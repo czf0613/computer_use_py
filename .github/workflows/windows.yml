@@ -39,10 +39,15 @@ jobs:
           python-version: ${{ matrix.python }}
           architecture: ${{ matrix.architecture }}
       - name: Bootstrap uv
-        run: python -m pip install uv
+        run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
+          python -m pip install uv
       - name: Build with synthetic test hooks
         shell: pwsh
+        env:
+          SCAPKIT_ANALYZE: '1'
         run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
           $python = (Get-Command python).Source
           uv sync --frozen --python $python
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -50,11 +55,28 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run --no-sync python -c "import os,platform,sys,sysconfig; print(platform.machine()); assert sysconfig.get_platform() == os.environ['EXPECTED_PLATFORM']; before=getattr(sys,'_is_gil_enabled',lambda:True)(); import scapkit_computer_use.screen_capture_kit._scapkit; assert not sysconfig.get_config_var('Py_GIL_DISABLED') or (not before and not sys._is_gil_enabled())"
       - name: Test without desktop, input or audio acquisition
-        run: uv run --no-sync pytest tests/test_windows_backend.py tests/test_async_safety.py tests/test_recording.py tests/test_release_artifacts.py
+        run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
+          uv run --no-sync python -I tests/windows_window_checks.py
+      - name: Compile fixture and test its offline protocol only
+        shell: pwsh
+        env:
+          SCAPKIT_ANALYZE: '1'
+        run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -property installationPath
+          Import-Module "$installation/Common7/Tools/Microsoft.VisualStudio.DevShell.dll"
+          $targetArch = '${{ matrix.architecture }}'
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=$targetArch -host_arch=$targetArch"
+          & ./tests/manual/build_window_fixture_windows.ps1
+          uv run --no-sync python -I tests/manual/test_window_fixtures.py --binary build/window-fixtures/window-fixture-windows.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Optional MCP with fake devices
         if: matrix.mcp
         shell: pwsh
         run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
           uv sync --frozen --extra mcp --no-build-package cryptography --python (Get-Command python).Source
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run --no-sync pytest tests/test_mcp_server.py tests/test_mcp_recording.py
@@ -63,6 +85,7 @@ jobs:
         env:
           SCAPKIT_TESTING: '0'
         run: |
+          Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
           uv run --no-sync setup.py build_ext --inplace --force
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           uv run --no-sync python -c "from scapkit_computer_use.screen_capture_kit import _scapkit; assert not any(n.startswith('_test_') for n in dir(_scapkit))"

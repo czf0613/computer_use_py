@@ -221,6 +221,8 @@ class Capture
                 X(current_frame_jpg) X(start_recording) X(stop_recording) X(abort_recording)
 #define DECLARE(name) PyObject *py_##name(PyObject *, PyObject *);
 SCAP_FUNCTIONS(DECLARE)
+DECLARE(window_enumerate) DECLARE(window_open) DECLARE(window_close) DECLARE(window_attach)
+DECLARE(window_screenshot) DECLARE(window_inspect) DECLARE(window_action)
 #ifdef SCAPKIT_TESTING
 DECLARE(test_input) DECLARE(test_capture) DECLARE(test_recording) DECLARE(test_decode)
 #endif
