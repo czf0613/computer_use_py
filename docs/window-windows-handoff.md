@@ -2,9 +2,10 @@
 
 This branch implements the seven synchronous `WINDOW_BACKEND_ABI=1` entries.
 Windows compilation, synthetic execution, and desktop acceptance are separate
-checks. This initial handoff was prepared on macOS: **Windows results are pending
-CI; all real window/UIA/non-interference scenarios are not_run**. The Provider
-receipt records the actual workflow run ID, URL, tested SHA and observed status.
+checks. This handoff was prepared on macOS: **the first Windows CI failed during
+compilation in all six matrix jobs; the BSTR correction awaits a new CI result.
+All real window/UIA/non-interference scenarios remain not_run**. The Provider
+receipt records the new workflow run ID, URL, tested SHA and observed status.
 Do not interpret dispatch or these source changes as successful Windows tests.
 
 ## Fixed inputs and ownership
@@ -110,6 +111,44 @@ trust. Only the supplied synthetic-content fixtures are eligible for later
 explicitly authorized desktop tests; do not use existing user applications.
 
 ## Validation and limits
+
+### First CI failure and correction
+
+[Windows run 40476742074](https://github.com/czf0613/computer_use_py/actions/runs/40476742074)
+tested `45459782bfeda5ea4570fabeb40c15f79a159f3a`. All six matrix jobs failed in
+`Build with synthetic test hooks`, during the editable build started by `uv sync`.
+The shared compiler error was C2664 at `accessibility.cpp:376`: the client
+`IUIAutomationValuePattern::SetValue` accepts a BSTR, whereas `wstring::c_str()`
+is only a const UTF-16 buffer. No tests, fixture compilation, MCP checks, GIL
+import checks or production wheel steps ran in this CI. This is an actual failed
+build, not a runner/queue limitation or a synthetic pass.
+
+The correction uses `SysAllocStringLen` with a checked, bounded length. A
+non-copyable RAII owner checks allocation failure and calls `SysFreeString` on
+normal return and exceptions. `SetValue` borrows this owned input BSTR; its
+readback BSTR has a separate owner, including the case where a failed provider
+fills the output. No const cast or borrowed `wstring` buffer is substituted.
+The shared production helper is also exercised by a testing-only local COM
+ValuePattern receiver with actual OLE strings: empty, Unicode/surrogate and
+maximum-length replacements, failed writes/readbacks and the null-allocation
+rejection path. This test creates no UIA client or desktop provider and has not
+yet executed on Windows at this handoff revision.
+
+The complete failed logs were retrieved and checked. They contained only that
+C2664 compiler diagnostic, expected setuptools manifest exclusions and D9025
+(`/W4` overriding setuptools' `/W3`). No warning was suppressed. Compilation
+stopped at the first translation unit, so the remaining native units and
+`/analyze` results still require the rerun; absence of their diagnostics is not
+evidence they passed. All six matrix entries, existing tests and GIL assertions
+are retained.
+
+The first Provider receipt was separately rejected with CHECK_UNVERIFIED because
+its command strings used `/bin/zsh -c` instead of the SDK-recorded `/bin/zsh -lc`.
+The actual commands were submitted without a manual shell wrapper. Future
+receipts use the SDK's full recorded wrapper and verbatim output; this correction
+does not relabel the failed CI as successful.
+
+### Offline coverage
 
 `tests/test_native_window_windows.py` drives actual native capsule consumption,
 registry ownership, epoch/geometry checks, action preconditions/dispatch,

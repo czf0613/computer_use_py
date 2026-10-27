@@ -92,6 +92,11 @@ struct SyntheticCapture final : CaptureTarget
 } // namespace
 Result Registry::synthetic(const std::string &command, const Ref &session)
 {
+    if (command == "bstr")
+    {
+        test_bstr_value_pattern();
+        return {};
+    }
     if (command == "capture" || command == "accessible")
     {
         auto target = std::make_shared<Target>();

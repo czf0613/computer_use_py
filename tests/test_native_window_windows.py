@@ -248,6 +248,10 @@ def test_timeout_dispatch_cas(native):
     unwrap(native._test_window("gate"))
 
 
+def test_com_value_pattern_uses_owned_bstr(native):
+    unwrap(native._test_window("bstr"))
+
+
 @pytest.mark.parametrize("value", [True, -1, 101, 2**100])
 def test_quality_native_bounds(native, value):
     handle = opened(native, "capture")

@@ -230,6 +230,7 @@ class Actor
 Actor &actor();
 PyObject *result_object(const Result &);
 #ifdef SCAPKIT_TESTING
+void test_bstr_value_pattern();
 PyObject *py_test_window(PyObject *, PyObject *);
 #endif
 } // namespace scap::window

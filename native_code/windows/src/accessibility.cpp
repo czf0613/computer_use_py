@@ -27,6 +27,41 @@ void uia_check(HRESULT hr, const std::shared_ptr<Life> &life)
     }
     throw Failure{hr == E_ACCESSDENIED ? "permission_denied" : "identity_unverifiable", "UIA", hr};
 }
+class OwnedBstr
+{
+    BSTR value = nullptr;
+  public:
+    OwnedBstr() = default;
+    explicit OwnedBstr(BSTR allocated) : value(allocated)
+    {
+        if (!value) { throw std::bad_alloc(); }
+    }
+    ~OwnedBstr() { SysFreeString(value); }
+    OwnedBstr(const OwnedBstr &) = delete;
+    OwnedBstr &operator=(const OwnedBstr &) = delete;
+    BSTR get() const { return value; }
+    BSTR *put()
+    {
+        SysFreeString(value);
+        value = nullptr;
+        return &value;
+    }
+};
+bool replace_value(IUIAutomationValuePattern &pattern, const std::wstring &replacement,
+                   const std::shared_ptr<Life> &life)
+{
+    // Python's UTF-8 limit implies at most 65536 UTF-16 code units. Keep the
+    // bound here as well, before narrowing the allocation length to UINT.
+    if (replacement.size() > 65536) { fail("resource_limit"); }
+    OwnedBstr input(SysAllocStringLen(replacement.data(), static_cast<UINT>(replacement.size())));
+    // [in] BSTR is borrowed by SetValue; this MTA scope retains ownership even
+    // if the provider fails. A wchar_t buffer is not a length-prefixed BSTR.
+    uia_check(pattern.SetValue(input.get()), life);
+    OwnedBstr readback;
+    if (FAILED(pattern.get_CurrentValue(readback.put())) || !readback.get() || SysStringLen(readback.get()) > 65536)
+    { return false; }
+    return std::wstring(readback.get(), SysStringLen(readback.get())) == replacement;
+}
 std::vector<int> runtime_id(IUIAutomationElement *element, const std::shared_ptr<Life> &life)
 {
     struct Array { SAFEARRAY *value = nullptr; ~Array() { if (value) { SafeArrayDestroy(value); } } } array;
@@ -373,11 +408,7 @@ class UiaRoot final : public Semantic
             ComPtr<IUIAutomationValuePattern> pattern;
             uia_check(node->element->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(&pattern)), life);
             if (!pattern) { fail("element_not_editable"); }
-            uia_check(pattern->SetValue(replacement.c_str()), life);
-            struct Text { BSTR value = nullptr; ~Text() { SysFreeString(value); } } readback;
-            if (FAILED(pattern->get_CurrentValue(&readback.value)) || !readback.value || SysStringLen(readback.value) > 65536)
-            { return false; }
-            return std::wstring(readback.value, SysStringLen(readback.value)) == replacement;
+            return replace_value(*pattern.Get(), replacement, life);
         }
         ComPtr<IUIAutomationInvokePattern> pattern;
         uia_check(node->element->GetCurrentPatternAs(UIA_InvokePatternId, IID_PPV_ARGS(&pattern)), life);
@@ -391,4 +422,63 @@ std::unique_ptr<Semantic> make_semantic(const std::shared_ptr<Target> &target)
 {
     return std::make_unique<UiaRoot>(target);
 }
+#ifdef SCAPKIT_TESTING
+void test_bstr_value_pattern()
+{
+    // No HWND, UIA client, proxy, or desktop provider is created. The local COM
+    // implementation consumes the same real OLE strings as the production path.
+    class ValuePattern final : public IUIAutomationValuePattern
+    {
+      public:
+        std::wstring stored;
+        HRESULT write_result = S_OK, read_result = S_OK;
+        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **value) override
+        {
+            if (!value) { return E_POINTER; }
+            *value = nullptr;
+            if (id != __uuidof(IUnknown) && id != __uuidof(IUIAutomationValuePattern)) { return E_NOINTERFACE; }
+            *value = static_cast<IUIAutomationValuePattern *>(this);
+            AddRef(); return S_OK;
+        }
+        // Stack-owned local test receiver; never marshaled or handed to UIA.
+        ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+        ULONG STDMETHODCALLTYPE Release() override { return 1; }
+        HRESULT STDMETHODCALLTYPE SetValue(BSTR value) override
+        {
+            if (!value) { return E_INVALIDARG; }
+            stored.assign(value, SysStringLen(value));
+            return write_result;
+        }
+        HRESULT STDMETHODCALLTYPE get_CurrentValue(BSTR *value) override
+        {
+            if (!value) { return E_POINTER; }
+            *value = SysAllocStringLen(stored.data(), static_cast<UINT>(stored.size()));
+            if (!*value) { return E_OUTOFMEMORY; }
+            // Exercise cleanup even when a provider fills an out parameter and fails.
+            return read_result;
+        }
+        HRESULT STDMETHODCALLTYPE get_CurrentIsReadOnly(BOOL *value) override
+        { if (!value) { return E_POINTER; } *value = FALSE; return S_OK; }
+        HRESULT STDMETHODCALLTYPE get_CachedValue(BSTR *value) override { return get_CurrentValue(value); }
+        HRESULT STDMETHODCALLTYPE get_CachedIsReadOnly(BOOL *value) override { return get_CurrentIsReadOnly(value); }
+    } pattern;
+    auto life = std::make_shared<Life>();
+    for (const auto &value : {std::wstring(), std::wstring(L"\u7a97\u53e3 \U0001f9ea"), std::wstring(65536, L'x')})
+    {
+        if (!replace_value(pattern, value, life) || pattern.stored != value) { fail("backend_protocol_error"); }
+    }
+    pattern.read_result = E_FAIL;
+    if (replace_value(pattern, L"failed readback", life)) { fail("backend_protocol_error"); }
+    pattern.write_result = E_ACCESSDENIED;
+    bool rejected = false;
+    try { replace_value(pattern, L"failed write", life); }
+    catch (const Failure &error)
+    { rejected = std::string(error.code) == "permission_denied" && error.native == E_ACCESSDENIED; }
+    if (!rejected) { fail("backend_protocol_error"); }
+    bool allocation_rejected = false;
+    try { OwnedBstr allocation_failure(nullptr); }
+    catch (const std::bad_alloc &) { allocation_rejected = true; }
+    if (!allocation_rejected) { fail("backend_protocol_error"); }
+}
+#endif
 } // namespace scap::window
