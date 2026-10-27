@@ -1,6 +1,14 @@
 #include "backend.h"
+#include "window_backend.h"
 using namespace scap;
 static PyMethodDef methods[] = {
+    {"_window_enumerate", py_window_enumerate, METH_VARARGS, nullptr},
+    {"_window_open", py_window_open, METH_VARARGS, nullptr},
+    {"_window_close", py_window_close, METH_VARARGS, nullptr},
+    {"_window_attach", py_window_attach, METH_VARARGS, nullptr},
+    {"_window_screenshot", py_window_screenshot, METH_VARARGS, nullptr},
+    {"_window_inspect", py_window_inspect, METH_VARARGS, nullptr},
+    {"_window_action", py_window_action, METH_VARARGS, nullptr},
     {"list_displays", py_list_displays, METH_NOARGS, nullptr},
     {"get_mouse_position", py_get_mouse_position, METH_NOARGS, nullptr},
     {"move_mouse", py_move_mouse, METH_VARARGS, nullptr},
@@ -23,6 +31,7 @@ static PyMethodDef methods[] = {
     {"stop_recording", py_stop_recording, METH_VARARGS, nullptr},
     {"_abort_recording", py_abort_recording, METH_VARARGS, nullptr},
 #ifdef SCAPKIT_TESTING
+    {"_test_window", scap::window::py_test_window, METH_VARARGS, nullptr},
     {"_test_input", py_test_input, METH_VARARGS, nullptr},
     {"_test_capture", py_test_capture, METH_VARARGS, nullptr},
     {"_test_recording", py_test_recording, METH_VARARGS, nullptr},
@@ -45,5 +54,10 @@ PyMODINIT_FUNC PyInit__scapkit()
         return nullptr;
     }
 #endif
+    if (PyModule_AddIntConstant(result, "WINDOW_BACKEND_ABI", 1) < 0)
+    {
+        Py_DECREF(result);
+        return nullptr;
+    }
     return result;
 }
