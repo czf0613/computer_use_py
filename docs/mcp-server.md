@@ -288,8 +288,9 @@ uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py t
 
 ## 显式窗口工具与客户端归属
 
-本分支完成冻结 Python window API 的 MCP 适配和 **fake 协议测试**，尚未接入
-macOS/Windows 原生 `WINDOW_BACKEND_ABI`，窗口请求真实返回 `backend_unavailable`。
+窗口工具使用独立 Python window API；未安装完整 `WINDOW_BACKEND_ABI=1` 的平台返回
+`backend_unavailable`。平台接入及实测结果见 [集成验证记录](window-control-validation-20261027.md)，
+**fake 协议测试**本身不证明原生窗口或后台控制已验收。
 生产 profile 的验收证据白名单为空；未验证动作返回 `background_not_verified`。
 这不改变旧整屏工具的全局输入、截图、剪贴板和录制语义；窗口失败不能引导 agent
 调用旧 `click/type_text` 等绕过后台策略。截图成功也不代表后台操作已验证。
@@ -345,10 +346,15 @@ exit_stack 清理。stdio/进程内测试连接使用独立 lifespan owner，支
 配额包括 pending open 与 cleanup 不完整的会话。refs 一次性且 60 秒到期，元素/
 frame mapping 30 秒到期，session 闲置 300 秒到期，5 秒定期清理，无需下一次请求。
 重复 close 在条目尚存时幂等；已成功关闭的条目可在新 open 时逐出，因此先保存回执。
+闲置回收只逐出 `cleanup_complete=True` 的条目。关闭失败或超时仍占会话配额，
+原连接可查询 status/close 的关闭状态；其他操作不恢复。连接结束后保留不可重新访问的
+owner/关闭记录，继续计入服务的 client/session 上限；新连接不能借断开绕过配额。
+当前 ABI 没有迟到清理确认接口，未知清理不会因 GC、时间流逝或重复 close 自动记为完成，
+可能持续占额直到服务退出。它是保守容量记账，不是 native 资源已经回收的证明。
 更新树会使旧元素 token 失效，任何 token 都不能跨 client/window 使用。
 同窗口并发操作拒绝为 `backend_busy`，close 等待，status 可读；跨窗口序列不原子。
 
-stdio EOF、有状态 HTTP DELETE/SDK 会话超时和服务正常关闭会清理资源。
+stdio EOF、有状态 HTTP DELETE/SDK 会话超时和服务正常关闭会尝试关闭所有资源。
 HTTP 单个请求/SSE 连接中断并非会话结束，仍由显式 close、闲置清理、DELETE 或 shutdown
 回收。观察到目标进程身份失效时关闭对应窗口句柄；未观察到时由 native revalidation 和
 闲置清理约束留存。强制杀进程不保证优雅清理。错误、token、标题、value 不写入适配器

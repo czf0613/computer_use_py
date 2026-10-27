@@ -122,7 +122,20 @@ free-threaded Python。
 参考：[CPython free-threaded C API 指南](https://docs.python.org/3.14/howto/free-threading-extensions.html)、
 [Apple ScreenCaptureKit 示例](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)。
 
-## 窗口 MCP 适配验证（2026-10-27）
+## 窗口集成检查（2026-10-27）
+
+当前合并版本、实际通过/历史失败/未执行项见
+[窗口集成验证记录](window-control-validation-20261027.md)。macOS CI 的
+`tests/macos_window_checks.py` 使用 `python -I`，检查本 checkout 的 ABI、空生产信任表、
+同进程 GIL 状态并运行显式列举的离线回归；`--production` 检查强制生产构建没有
+test hooks。`tests/mcp_window_checks.py` 接受完整窗口 ABI 或明确缺失 ABI 的安装，
+不调用真实枚举/截图，使用三个 fake MCP 测试文件。Windows 保留全部六项原矩阵。
+不得用全套 pytest 代替这些 runner，旧 desktop tests 不在授权范围内。
+
+## 历史 MCP 独立阶段验证（2026-10-27）
+
+以下记录对应输入 `933692576cc18ea84202ff9d97dc610c5a2b3a50` 的独立 MCP 阶段，
+不代表集成分支当前的平台状态；保留原始失败/修复与测试证据。
 
 固定公共接口输入为 `01b318287d40d9124ae2708eaa3f1fcc6821cbbc`，方案版本为
 `18304c2b16f562c50e0434b7d41d53fc6ac944a3`；未合并 fixture/native 分支。

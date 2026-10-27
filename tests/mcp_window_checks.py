@@ -17,7 +17,9 @@ def main():
         assert not sys._is_gil_enabled(), "GIL enabled before imports"
         print("gil_enabled_before_imports=False")
     else:
-        assert sys.version_info[:2] == (3, 10)
+        assert sys.version_info >= (3, 10)
+    if free_threaded:
+        assert not sys._is_gil_enabled(), "GIL enabled before imports"
     import pytest
 
     for name, relative in [
@@ -32,18 +34,21 @@ def main():
         Path(native.__file__).resolve().parent
         == root / "src/scapkit_computer_use/screen_capture_kit"
     )
-    assert not hasattr(native, "WINDOW_BACKEND_ABI"), (
-        "re-evaluate native scope before using this matrix"
-    )
     window = importlib.import_module("scapkit_computer_use.window")
-    try:
-        window._load_native()
-    except importlib.import_module(
-        "scapkit_computer_use.window_errors"
-    ).WindowError as error:
-        assert error.code == "backend_unavailable"
+    if hasattr(native, "WINDOW_BACKEND_ABI"):
+        assert native.WINDOW_BACKEND_ABI == 1
+        assert window._load_native() is native
+        native_status = "abi1 (no desktop calls)"
     else:
-        raise AssertionError("missing ABI was advertised as available")
+        try:
+            window._load_native()
+        except importlib.import_module(
+            "scapkit_computer_use.window_errors"
+        ).WindowError as error:
+            assert error.code == "backend_unavailable"
+        else:
+            raise AssertionError("missing ABI was advertised as available")
+        native_status = "unavailable"
     profiles = importlib.import_module("scapkit_computer_use.window_profiles")
     assert not profiles._APPROVED_EVIDENCE_SHA256
     if free_threaded:
@@ -52,7 +57,7 @@ def main():
     print(
         f"python={sys.version.split()[0]} free_threaded={free_threaded} isolated={sys.flags.isolated}"
     )
-    print("checkout_imports=verified native_window_backend=unavailable")
+    print(f"checkout_imports=verified native_window_backend={native_status}")
     code = pytest.main(
         [
             str(root / "tests/test_mcp_windows.py"),

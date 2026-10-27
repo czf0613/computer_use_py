@@ -79,7 +79,7 @@ jobs:
           Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue
           uv sync --frozen --extra mcp --no-build-package cryptography --python (Get-Command python).Source
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          uv run --no-sync pytest tests/test_mcp_server.py tests/test_mcp_recording.py
+          uv run --no-sync python -I tests/mcp_window_checks.py
       - name: Build production wheel without synthetic hooks
         shell: pwsh
         env:

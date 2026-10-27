@@ -41,7 +41,9 @@ def harness(backend, monkeypatch):
     monkeypatch.setattr(WindowTools, "__init__", init)
     device = Device(computer=ForbiddenDesktop(), system="Darwin")
     server = create_server(device=device)
-    return SimpleNamespace(server=server, registry=instances[-1], device=device)
+    return SimpleNamespace(
+        server=server, registry=instances[-1], device=device, registries=instances
+    )
 
 
 async def call(client, name, **kwargs):
@@ -468,6 +470,107 @@ async def test_close_race_excludes_work_and_reports_incomplete_cleanup(
         reply, err = await call(client, "window_close", session_token=other)
         assert reply.is_error and err["code"] == "backend_busy"
         assert err["closed"] and not err["cleanup_complete"]
+
+
+@pytest.fixture
+def incomplete_native_close(backend, monkeypatch):
+    """Keep a native resource outstanding, independently of Python closed state."""
+    attempts = []
+
+    def install(code):
+        def close(handle):
+            attempts.append(handle)
+            return failure(code)
+
+        monkeypatch.setattr(backend, "_window_close", close)
+        return attempts
+
+    return install
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["backend_busy", "outcome_unknown"])
+@pytest.mark.parametrize("explicit_close", [False, True])
+async def test_incomplete_idle_close_preserves_capacity_and_status(
+    harness, backend, incomplete_native_close, code, explicit_close
+):
+    registry = harness.registry
+    registry.CLIENT_SESSIONS = 1
+    now = [registry.clock()]
+    registry.clock = lambda: now[0]
+    attempts = incomplete_native_close(code)
+    async with Client(harness.server, mode="legacy") as client:
+        token = await opened(client)
+        if explicit_close:
+            reply, state = await call(client, "window_close", session_token=token)
+            assert reply.is_error and state["code"] == code
+        now[0] += registry.IDLE_TTL + 1
+        await registry.expire()
+        _, listing = await call(client, "window_list")
+        reply, state = await call(
+            client, "window_open", ref_token=listing["windows"][0]["ref_token"]
+        )
+        assert reply.is_error and state["code"] == "resource_limit"
+        reply, state = await call(client, "window_status", session_token=token)
+        assert not reply.is_error and state["closed"]
+        assert not state["cleanup_complete"]
+        reply, state = await call(client, "window_close", session_token=token)
+        assert reply.is_error and state["code"] == code
+        now[0] += registry.IDLE_TTL + 1
+        await registry.expire()
+        assert len(attempts) == len(backend.handles) == 1
+        assert not backend.handles[0].closed  # No native cleanup confirmation.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["legacy", "2026-07-28", "http"])
+@pytest.mark.parametrize("code", ["backend_busy", "outcome_unknown"])
+async def test_disconnect_with_incomplete_close_cannot_reclaim_global_capacity(
+    harness, backend, incomplete_native_close, transport, code
+):
+    registry = harness.registry
+    registry.MAX_SESSIONS = 1
+    attempts = incomplete_native_close(code)
+    app = create_app(device=harness.device, stateless_http=False)
+    # create_app owns its own registry, just as a separate server process would.
+    if transport == "http":
+        registry = harness.registries[-1]
+        registry.MAX_SESSIONS = 1
+
+    async with app.router.lifespan_context(app):
+        factory = (
+            (lambda: http_client(app))
+            if transport == "http"
+            else (lambda: Client(harness.server, mode=transport))
+        )
+        async with factory() as client:
+            token = await opened(client)
+        # HTTP DELETE cleanup runs on the SDK connection task.
+        for _ in range(100):
+            if attempts:
+                break
+            await asyncio.sleep(0.01)
+        assert len(attempts) == 1
+        async with factory() as other:
+            _, listing = await call(other, "window_list")
+            reply, state = await call(
+                other, "window_open", ref_token=listing["windows"][0]["ref_token"]
+            )
+            assert reply.is_error and state["code"] == "resource_limit"
+            reply, state = await call(other, "window_status", session_token=token)
+            assert reply.is_error and state["code"] == "session_closed"
+        await registry.expire()
+        assert len(attempts) == len(backend.handles) == 1
+        assert not backend.handles[0].closed
+        assert len(registry.clients) == 1
+        owner = next(iter(registry.clients))
+        assert owner.closed and not owner.refs
+        assert not owner.sessions[token].session.cleanup_complete
+        # Repeated disconnections cannot grow the retained-owner set either.
+        registry.MAX_CLIENTS = 1
+        async with factory() as other:
+            reply, state = await call(other, "window_list")
+            assert reply.is_error and state["code"] == "resource_limit"
 
 
 @pytest.mark.asyncio

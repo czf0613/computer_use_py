@@ -211,7 +211,8 @@ class WindowTools:
                     entry.frame = None
                 if entry.task is None and now - entry.touched >= self.IDLE_TTL:
                     await self.close_entry(entry)
-                    owner.sessions.pop(token, None)
+                    if entry.session.cleanup_complete:
+                        owner.sessions.pop(token, None)
 
     async def close_entry(self, entry):
         async def close():
@@ -238,10 +239,15 @@ class WindowTools:
             for task in tuple(owner.active):
                 task.cancel()
             await asyncio.gather(*owner.active, return_exceptions=True)
-            for entry in tuple(owner.sessions.values()):
+            for token, entry in tuple(owner.sessions.items()):
                 await self.close_entry(entry)
-            owner.sessions.clear()
-            self.clients.discard(owner)
+                if entry.session.cleanup_complete:
+                    owner.sessions.pop(token, None)
+            # Native can outlive a disconnected transport. Keep unknown closes
+            # charged to both limits, with their original receipt. Python's
+            # closed flag, GC, or a new connection cannot confirm reclamation.
+            if not owner.sessions:
+                self.clients.discard(owner)
 
         if owner.close_task is None:
             owner.close_task = asyncio.create_task(close())
@@ -258,7 +264,11 @@ class WindowTools:
         entry = owner.sessions.get(token)
         if entry is None:
             reject("session_closed")
-        if entry.task is None and self.clock() - entry.touched >= self.IDLE_TTL:
+        if (
+            entry.task is None
+            and entry.close_task is None
+            and self.clock() - entry.touched >= self.IDLE_TTL
+        ):
             reject("session_closed")  # Reaper owns reclamation; no resurrection.
         entry.touched = self.clock()
         return entry
@@ -614,7 +624,7 @@ class WindowTools:
 
         @tool(read_only=True)
         async def window_status(ctx: Context, session_token: Token) -> CallToolResult:
-            """Read last_action and cleanup state without native calls, including while busy/after cancellation. Retained only until close-entry eviction, expiry or client disconnect."""
+            """Read last_action and cleanup state without native calls, including while busy/after cancellation. Incomplete closes retain status for the owning connection; disconnect never makes it accessible to another client."""
             entry = owned(ctx, session_token)
             return result(
                 {

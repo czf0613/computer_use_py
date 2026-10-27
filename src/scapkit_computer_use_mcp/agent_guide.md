@@ -173,9 +173,9 @@ The server does not add confirmation dialogs between each mouse or keyboard acti
 
 ## Explicit window sessions (separate from desktop tools)
 
-The window tools use only the public window API. This branch has **no native
-window ABI implementation** and reports `backend_unavailable`; fake protocol
-checks are not desktop acceptance. The installed production profile evidence
+The window tools use only the public window API. An installed backend without
+the complete window ABI reports `backend_unavailable`. Native availability and
+fake protocol checks are not desktop acceptance. The installed production profile evidence
 allowlist is empty. Unverified semantic actions return `background_not_verified`.
 Existing whole-desktop tools retain their documented foreground/global behavior.
 Never use them as a fallback for a failed background window action.
@@ -242,10 +242,15 @@ after 300 idle seconds; a five-second reaper closes them even without another
 request. Concurrent operations on one session return `backend_busy`; close
 waits, and status remains readable. Cross-client and cross-session tokens fail.
 Successful closed entries can be evicted on the next open, so save needed action
-receipts before closing. Tokens and receipts do not survive client teardown.
+receipts before closing. Incomplete closes retain status for the owning
+connection and remain charged after idle expiry. After disconnect their tokens
+are inaccessible, but the closed owner and incomplete sessions still count
+against server limits. Reconnecting does not reclaim that capacity. The ABI has
+no late-cleanup notification: these reservations may last until server exit.
+GC and a Python closed flag are not native cleanup confirmation.
 
-Stdio EOF closes that client's resources. Stateful HTTP DELETE, SDK session
-expiry and graceful server shutdown close the connection's resources. A dropped
+Stdio EOF attempts to close that client's resources. Stateful HTTP DELETE, SDK
+session expiry and graceful server shutdown also attempt cleanup. A dropped
 HTTP request or SSE stream alone is not a disconnected MCP session: its window
 handles remain until explicit close, idle expiry, DELETE or shutdown. Observed
 target-process identity loss closes the affected handle; otherwise native
