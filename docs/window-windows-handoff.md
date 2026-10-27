@@ -2,13 +2,15 @@
 
 This branch implements the seven synchronous `WINDOW_BACKEND_ABI=1` entries.
 Windows compilation, synthetic execution, and desktop acceptance are separate
-checks. This handoff was prepared on macOS. **The latest completed Windows CI
-(40479320493, a5e2c6a) built the library and passed 186 offline tests in each of
-six jobs, including free-threaded GIL assertions; all six then failed fixture
-compilation. The deadline and fixture-path corrections below await a new CI
-result. All real window/UIA/non-interference scenarios remain not_run**.
-The Provider receipt records the new workflow run ID, URL, tested SHA and
-observed status. Dispatch is not a passing build or test result.
+checks. This handoff was prepared on macOS. **The latest completed integration
+CI (40482766511, 74584d4) built the library and passed 189 offline tests in each
+of six jobs, including the corrected native timeout tests and free-threaded GIL
+assertions; all six then failed fixture compilation on COM header declarations.
+The fixture include-order and queued-timeout corrections below await integration
+CI. All real window/UIA/non-interference scenarios remain not_run**.
+Per caller direction, this correction does not dispatch another matrix. The
+upper layer will integrate the published exact SHA and run Windows CI, including
+MCP. Dispatch or successful earlier stages do not make a failed run pass.
 
 ## Fixed inputs and ownership
 
@@ -30,11 +32,14 @@ observed status. Dispatch is not a passing build or test result.
 `window.cpp` validates/copies Python arguments and grants before detaching thread
 state. One process-wide dedicated MTA actor owns the registry, COM objects,
 registration/removal, WGC items, D3D resources and results. It has at most 64
-queued requests and one executing operation. Each call has a finite caller wait;
-a deadline suppresses a queued/pre-dispatch action atomically, and dispatched
-actions become unknown. An actor that fails to finish within its caller budget
-(including the bounded capture cleanup grace below) is quarantined permanently,
-never replaced with additional workers. Late results and releases contain only native
+queued requests and one executing operation. Each call has a finite caller wait.
+A queued request expires at its own deadline: the same atomic phase transition
+as actor admission cancels it before execution, returning `not_dispatched` with
+`actor.queue_timeout`, without quarantining a different healthy running request.
+An admitted operation that fails to finish within its caller budget (including
+the bounded capture cleanup grace below) quarantines the actor permanently;
+dispatched writes become unknown. The actor is never replaced with additional
+workers. Late results and releases contain only native
 objects. Close immediately closes the immutable capsule token, queues cleanup,
 and reports incomplete cleanup on timeout/failure. No COM pointer or Python
 object crosses to an event callback or arbitrary executor.
@@ -60,8 +65,9 @@ mapping; unmatched dimensions return unavailable mapping, without guessed scales
 
 Screenshot admission, queueing, WGC capture and encoding share one absolute
 steady-clock deadline. WGC no longer starts a fresh timeout after dequeuing.
-The caller allows a fixed **one-second completion/cleanup grace** beyond that
-deadline; it is not additional time to wait for a frame. Normal no-frame expiry
+An admitted capture allows a fixed **one-second completion/cleanup grace** beyond
+that deadline; queued capture expiry does not consume this grace, and it is not
+additional time to wait for a frame. Normal no-frame expiry
 closes/releases its short-lived resources and returns `capture_timeout`, leaving
 the actor usable. If a native call or cleanup has still not returned at the end
 of the grace, the caller returns `backend_busy` with native domain
@@ -102,10 +108,13 @@ Instance identity and profile semantics are deliberately different:
   window/control is never rebound.
 - Only the fixture adapter recognizes `ScapkitWindowFixtureV1`, the exact UUID
   grammar and a data-only PE resource matching the frozen fixture source hash
-  `b6dab9646f045a2d6cae2932d24b823b89caacb1e99bccd24e55e73efc1f2023`.
+  `3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251`.
+  This is the fixed dependency's Windows source with the explicit COM/OLE
+  include-order correction below; it does not select a newer dependency tip.
   The Windows fixture build script embeds this resource, with no new desktop
   behavior. The expected hash lives in a packaged native header so source builds
-  do not depend on pruned `tests/` files.
+  do not depend on pruned `tests/` files; its value and this handoff were checked
+  against the corrected source bytes locally.
 - Its subject uses application ID `scapkit.fixture.windows.v1`, version `1`,
   SHA-256 of the actual executable for application_build, an OS/architecture
   environment, the Windows native source build hash, and window_identifier
@@ -176,8 +185,8 @@ The optional MCP and production wheel steps were skipped. The full run and
 failed-step logs were retrieved; no single job was extrapolated to the matrix.
 The build script now resolves the generated header to its absolute filesystem
 path and supplies it as one `/FI` argument, avoiding source-directory-relative
-include lookup and preserving paths containing spaces. Fixture source and its
-recognition hash are unchanged.
+include lookup and preserving paths containing spaces. That path correction
+did not change fixture source or its recognition hash.
 
 Review also found that the old outer Actor timeout started before queueing,
 while WGC restarted the same duration when capture began. Normal no-frame expiry
@@ -195,7 +204,7 @@ copy of the parent environment, plus isolated imports and before/after GIL check
 The synthetic blocker has a 20-second failsafe and the child a 30-second bound;
 there is no replacement Actor or test reset of quarantine.
 
-These new timeout tests have not run on Windows at this revision. Local Python
+At that revision these new timeout tests had not run on Windows. Local Python
 3.10/3.14t syntax checks passed. The first local Ruff check found two import-order
 errors in the timeout test files; those were corrected before the passing rerun.
 No Windows compiler or desktop result is inferred from local checks.
@@ -221,6 +230,66 @@ prepared. It does not test the corrected keyword. Per caller steering, this
 correction does not dispatch a duplicate matrix; the integration Windows CI must
 validate the corrected commit, including native timeout and MCP tests. Historical
 CI failures above and all desktop acceptance limits remain unchanged.
+
+### Integration CI fixture failure and queued-timeout correction
+
+[Integration run 40482766511](https://github.com/czf0613/computer_use_py/actions/runs/40482766511)
+tested `74584d4e6f247a0388ebd89da31a675a92a3e19b`, which includes the corrected
+Windows candidate `50f09b62be977dca79fd27010f774b1a8d22194b`. Its final conclusion
+is **failure**. All six native builds and test steps succeeded (`189 passed` per
+job), including the real production-Actor no-frame, hung-native and hung-cleanup
+tests. All three free-threaded jobs printed `gil_enabled_after_tests=False`.
+All six fixture compilations failed, beginning with SDK 10.0.26100.0
+`UIAutomationCore.h(49)` C4430/C2146 at `IRawElementProviderSimple`, followed by
+cascading interface errors and the 100-error cutoff. MCP and production wheel
+steps were skipped. These results were read from the complete run and job logs,
+not inferred from one job. The initial job-log retrieval was rejected by gh's
+terminal-escape guard; the permitted retry redirected raw output to a local
+ignored file and inspected it only as data.
+
+The fixture defines `WIN32_LEAN_AND_MEAN`, which excludes `windows.h`'s implicit
+OLE header inclusion. `UIAutomation.h` needs the COM interface declarations
+before its provider forward declarations. The fixture now explicitly includes
+`ole2.h` before `UIAutomation.h`, as in Microsoft's
+[UI Automation provider sample](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/UIAutomationSimpleProvider/cpp/Provider.cpp).
+The native recognition pin is updated together with the corrected fixture source.
+The absolute forced-include path fix is retained. No fixture step, matrix entry,
+compiler warning, GIL assertion or production profile restriction is removed.
+Source inspection found no further definite fixture compilation defect; the
+corrected translation unit and PowerShell build still require MSVC execution.
+
+Independent review reproduced a second deadline defect: a short request waiting
+behind another session's healthy long request changed its queued phase to
+canceled, but still permanently quarantined the process-wide Actor. The correction
+uses a separate atomic `queued -> canceled` branch at the original deadline.
+Winning that transition proves the operation cannot execute later; only that
+caller receives `capture_timeout` (capture) or `backend_busy` (other requests),
+with `actor.queue_timeout` and `not_dispatched`. Queued close still reports
+`actor.cleanup_incomplete`. None of these cancellations sets or clears quarantine.
+If actor admission already won, the existing bounded completion and quarantine
+logic applies; hung native work, hung cleanup and unknown dispatched writes retain
+their previous failure semantics.
+
+A new Windows synthetic child test opens three sessions sharing the real Actor.
+It holds a healthy capture within its five-second budget, queues a 50-ms capture
+and a 50-ms Invoke, and checks that neither expired request executes. After
+releasing the first capture, its result must succeed; the test drains the queue,
+checks resource/effect counters, and succeeds with a new capture and Invoke.
+The held capture uses a test-only resource owner with the existing finite blocker
+failsafe. The unchanged hung-native and hung-cleanup child tests remain alongside
+it. The private grant is confined to the synthetic child and restored afterward;
+the production evidence allowlist remains empty.
+
+Local validation also compiled and executed verbatim production `Work`,
+`Actor::run` and `Actor::call` code in a portable probe, with only OS startup,
+HRESULT adapters and the empty Registry stubbed. Normal no-frame cleanup left
+the Actor usable; queued capture/write expiry suppressed both callbacks while
+the long request and following request succeeded; both hung modes retained
+quarantine after late resource release and reported incomplete cleanup. This
+is a portable concurrency check, **not Windows extension compilation or desktop
+acceptance**. The committed Windows extension test and fixture correction are
+not_run until the upper layer's next integration CI. Python 3.10/3.14t offline
+syntax/signature checks and Ruff are separate from that pending validation.
 
 ### Offline coverage
 
@@ -253,8 +322,9 @@ Windows compilation attempt. Windows build/test results must come from CI.
 Still not_run: Windows UIA/WGC fixture desktop behavior, background continuity,
 occlusion, minimized/modal/stale desktop scenarios, cross-DPI mapping, Windows
 10/ARM64 desktop behavior, real cancellation/late-provider cleanup, and upper
-layer independent review. Production profiles have no approved evidence. Native
-provider timeout quarantines the single actor for the remainder of the process;
+layer final independent acceptance. Production profiles have no approved evidence.
+An admitted native operation that outlives its bounded completion budget
+quarantines the single actor for the remainder of the process;
 it can leave native state retained until a provider returns. No thread is killed
 and no immediate cleanup is promised.
 

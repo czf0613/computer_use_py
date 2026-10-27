@@ -250,8 +250,7 @@ def test_capture_deadline_cleans_up_and_keeps_actor_available(native):
         unwrap(native._window_close(handle))
 
 
-@pytest.mark.parametrize("mode", ["hung_native", "hung_cleanup"])
-def test_hung_capture_quarantines_production_actor(native, mode):
+def run_timeout_child(mode):
     # Each process has its one real Actor. Isolation is necessary because its
     # quarantine must be permanent; no testing reset or replacement is allowed.
     from scapkit_computer_use.process import _shell_environment
@@ -265,7 +264,16 @@ def test_hung_capture_quarantines_production_actor(native, mode):
         cwd=root, env=environment, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert f"{mode}: quarantine retained; cleanup_complete=False; late resources released" in result.stdout
+    return result.stdout
+
+
+@pytest.mark.parametrize("mode", ["hung_native", "hung_cleanup"])
+def test_hung_capture_quarantines_production_actor(native, mode):
+    assert f"{mode}: quarantine retained; cleanup_complete=False; late resources released" in run_timeout_child(mode)
+
+
+def test_queued_timeouts_do_not_quarantine_healthy_actor(native):
+    assert "queued_timeouts: canceled capture/write stayed undispatched; actor reusable" in run_timeout_child("queued_timeouts")
 
 
 def test_concurrent_close_and_retained_element(native, session):

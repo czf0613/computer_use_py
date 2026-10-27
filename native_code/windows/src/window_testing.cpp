@@ -116,9 +116,11 @@ struct SyntheticCapture final : CaptureTarget
         if (mode >= 6)
         {
             SyntheticCaptureResource resource(mode);
-            if (mode == 7) { block_capture_probe(1); }
+            if (mode == 7 || mode == 9) { block_capture_probe(1); }
             else { std::this_thread::sleep_until(deadline); }
-            fail("capture_timeout"); // resource cleanup must finish before the Actor reports this.
+            // Mode 9 is a slow but healthy capture, released by the test within
+            // its own deadline while other callers time out in the real queue.
+            if (mode != 9 || Clock::now() >= deadline) { fail("capture_timeout"); }
         }
         Pixels pixels; pixels.width = mode == 5 ? 60 : 64; pixels.height = 32; pixels.stride = pixels.width * 4;
         pixels.data.resize(static_cast<size_t>(pixels.stride) * pixels.height, 127);
@@ -216,12 +218,14 @@ Result Registry::synthetic(const std::string &command, const Ref &session)
     else if (command == "capture_timeout" && capture) { capture->mode = 4; }
     else if (command == "unmapped_frame" && capture) { capture->mode = 5; }
     else if (command == "normal_frame" && capture) { capture->mode = 0; }
-    else if ((command == "no_frame_deadline" || command == "hung_native" || command == "hung_cleanup") && capture)
+    else if ((command == "no_frame_deadline" || command == "hung_native" ||
+              command == "hung_cleanup" || command == "held_frame") && capture)
     {
         std::lock_guard lock(capture_probe_mutex);
         if (live_captures) { fail("backend_protocol_error"); }
         capture_probe_released = false; capture_probe_expired = false;
-        capture->mode = command == "no_frame_deadline" ? 6 : command == "hung_native" ? 7 : 8;
+        capture->mode = command == "no_frame_deadline" ? 6 : command == "hung_native" ? 7 :
+                        command == "hung_cleanup" ? 8 : 9;
     }
     else if (command == "invokes" && semantic)
     {
