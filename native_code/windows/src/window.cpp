@@ -353,8 +353,22 @@ Result Actor::call(std::function<Result(Registry &, Work &)> function, double ti
     }
     changed.notify_one();
     std::unique_lock lock(work->mutex);
-    if (!work->changed.wait_until(lock, completion_deadline, [&] { return work->done; }))
+    if (!work->changed.wait_until(lock, work->deadline, [&] { return work->done; }))
     {
+        // Cancel only this queued request. The actor may be running a different
+        // request that is still within its own budget. Win the same CAS as the
+        // actor's 0 -> 1 admission, so this function can never run later.
+        int queued = 0;
+        if (work->phase.compare_exchange_strong(queued, 3))
+        {
+            work->abandoned = true;
+            throw Failure{work->timeout_code, cleanup ? "actor.cleanup_incomplete" : "actor.queue_timeout",
+                          WAIT_TIMEOUT, "not_dispatched", "never"};
+        }
+        // Only an admitted capture needs the bounded completion/cleanup grace.
+        // A queued capture was canceled at its original deadline above.
+        if (capture_wait && work->changed.wait_until(lock, completion_deadline, [&] { return work->done; }))
+        { return std::move(work->result); }
         work->abandoned = true;
         int phase = work->phase.load();
         while (phase != 2 && phase != 3 && !work->phase.compare_exchange_weak(phase, 3)) {}

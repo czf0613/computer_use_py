@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
+// WIN32_LEAN_AND_MEAN excludes the COM/OLE declarations UIAutomation.h needs.
+#include <ole2.h>
 #include <UIAutomation.h>
 #include <sddl.h>
 #include <atomic>
