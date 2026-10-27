@@ -53,7 +53,7 @@ def main():
         assert not hooks, hooks
         print("production_test_hooks=absent")
         return 0
-    assert hooks, "synthetic testing build required"
+    assert hooks and hasattr(native, "_test_window"), "window testing build required"
     import pytest
 
     names = [

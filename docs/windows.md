@@ -10,6 +10,12 @@ CPython 3.10–3.14 和 3.13t/3.14t；在同架构 runner 上安装并验证导�
 无 GIL 状态。可通过手动预检先生成 artifact，正式 PyPI 上传由 Release 发布事件触发。
 流程见 [CI 与 PyPI 发布](releasing.md)；构建/导入检查不等于真实桌面验收。
 
+新窗口路径独立使用 WGC `CreateForWindow` 和 UIA 语义控制，不改变上述整屏 API。
+UIA 的 AutoSetFocus 必须关闭并读回，写操作仍受精确 profile 约束；当前生产信任表
+为空，返回 `background_not_verified`。没有全局输入/焦点/剪贴板兜底。窗口分支的
+固定提交、CI 失败及后续结果见 [Windows handoff](window-windows-handoff.md) 和
+[集成验证记录](window-control-validation-20261027.md)；历史整屏桌面验证不覆盖窗口控制。
+
 ## 构建
 
 需要 CPython 3.10+、uv、MSVC C++ 工具链和 Windows SDK（本机使用 10.0.26100.0）。

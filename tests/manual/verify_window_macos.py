@@ -9,13 +9,13 @@ import asyncio
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,6 +47,35 @@ async def until(path, predicate):
     raise AssertionError("fixture observation deadline exceeded")
 
 
+async def snapshot_after_layout(native, handle, report):
+    """Caller-directed read refresh only; never retry an action or unknown call."""
+    for attempt in range(3):
+        result = native._window_inspect(handle, "elements", {"max_depth": 8, "max_nodes": 512})
+        if result["ok"]:
+            snapshot = result["value"]
+            # AppKit may publish additional AX children during initial reads.
+            # Check the snapshot again before submitting the one candidate action.
+            await asyncio.sleep(0.1)
+            result = native._window_inspect(handle, "validate_snapshot", {
+                key: snapshot[key] for key in ("tree_epoch", "geometry_revision")
+            })
+            if result["ok"]:
+                return snapshot
+        error = result["error"]
+        if not (
+            attempt < 2
+            and error["code"] == "stale_element"
+            and error["native_code"] in (None, "tree_changed")
+            and error["dispatch_state"] == "not_dispatched"
+            and error["retry_hint"] == "refresh"
+        ):
+            return native_ok(result)
+        report["snapshot_layout_refreshes"] = report.get("snapshot_layout_refreshes", 0) + 1
+        print("snapshot_changed_before_dispatch: refreshing_read_only", flush=True)
+        await asyncio.sleep(0.1)
+    raise AssertionError("unreachable snapshot refresh state")
+
+
 async def exercise(report):
     from scapkit_computer_use import window
     from scapkit_computer_use import window_profiles as profiles
@@ -70,7 +99,8 @@ async def exercise(report):
         output = Path(temp) / "fixture.log"
         with output.open("wb") as log:
             # Fresh minimal environment, no inherited Python/shell configuration.
-            child = subprocess.Popen([str(binary), "--state-dir", str(directory), "--role", "a", "--background"],
+            child = subprocess.Popen(  # noqa: ASYNC220 - standalone owned-fixture probe; bounded teardown below
+                                     [str(binary), "--state-dir", str(directory), "--role", "a", "--background"],
                                      env={"PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8"}, stdout=log, stderr=log)
         capture = None
         semantic = None
@@ -122,7 +152,7 @@ async def exercise(report):
                 report["exact_bridge_identity"] = "passed"
                 for identifier, action, value in (("fixture.text", "set_value", "SCAPKIT synthetic replacement"),
                                                   ("fixture.increment", "invoke", None)):
-                    snapshot = native_ok(native._window_inspect(semantic, "elements", {"max_depth": 8, "max_nodes": 512}))
+                    snapshot = await snapshot_after_layout(native, semantic, report)
                     nodes = [e for e in snapshot["elements"] if e["identifier"] == identifier]
                     assert len(nodes) == 1
                     args = (semantic, nodes[0]["ref"], snapshot["tree_epoch"], snapshot["geometry_revision"],
@@ -171,22 +201,27 @@ async def exercise(report):
                 raise AssertionError("closed window remained readable")
             report["desktop"] = "fixture probe executed; continuous-input acceptance not_run"
         finally:
-            if semantic is not None:
-                native_ok(native._window_close(semantic))
-            if capture is not None:
-                await capture.aclose()
-                assert capture.cleanup_complete
-            if child.poll() is None:
-                child.terminate()
+            try:
                 try:
-                    child.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    child.kill()
-                    child.wait(timeout=5)
-            report["owned_process_cleanup"] = child.poll() is not None
-            report["fixture_exit_code"] = child.returncode
-            if output.stat().st_size:
-                report["fixture_diagnostic"] = output.read_text(errors="replace")[-2000:]
+                    if semantic is not None:
+                        native_ok(native._window_close(semantic))
+                finally:
+                    if capture is not None:
+                        await capture.aclose()
+                        assert capture.cleanup_complete
+            finally:
+                # A close error must not skip the other handle or child reaping.
+                if child.poll() is None:
+                    child.terminate()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait(timeout=5)
+                report["owned_process_cleanup"] = child.poll() is not None
+                report["fixture_exit_code"] = child.returncode
+                if output.stat().st_size:
+                    report["fixture_diagnostic"] = output.read_text(errors="replace")[-2000:]
 
 
 def main():
@@ -203,7 +238,7 @@ def main():
             result = 1
         if report.get("target_effect") is False or report.get("sibling_unchanged") is False:
             result = 1
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - CLI emits failure evidence and exits nonzero
         report["failure"] = type(error).__name__ + ": " + str(error)
         result = 1
     print(json.dumps(report, sort_keys=True, ensure_ascii=True))

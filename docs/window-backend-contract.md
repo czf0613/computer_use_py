@@ -274,7 +274,13 @@ can still be returned. Native must normalize SCK same-frame metadata; it cannot
 label SDK point rectangles as pixels or substitute the enumeration display scale.
 
 Every screenshot owns a fresh short-lived SC stream/WGC pool, receives a new
-complete frame, copies bytes, and closes it on **every** success/failure/timeout.
+complete frame, copies bytes, and initiates teardown on **every** success/failure/
+timeout. A successful screenshot requires completed teardown. A platform start/
+stop completion can arrive after the caller's finite budget: retain the bounded
+native capture owner, refuse replacement acquisition, and report incomplete
+cleanup (`backend_busy`) until completion. Do not free a live callback or label
+that timeout as successful cleanup. The implemented macOS backend still uses
+one short-lived stream per screenshot, not a persistent observation stream.
 No display cropping, hidden fallback, cursor/audio capture, automatic popup
 inclusion, restore/activation, idle/blank/old cached frame substitution. Recheck
 identity and geometry before delivery; movement/DPI/resize races fail with
@@ -385,7 +391,8 @@ or promise immediate reclamation. Close reports incomplete cleanup explicitly.
 Cancellation before Python executor admission suppresses the native call under
 a lock and records not_dispatched. Once admitted, Python drains the one native
 call through repeated cancellation, then preserves CancelledError. It never
-retries. Late open handles are closed; screenshot owns no stream on return;
+retries. Late open handles are closed; successful screenshot owns no stream on
+return, while incomplete teardown retains the quarantined native capture owner;
 canceled attach closes the session. A canceled write with no confirmed
 non-dispatch is unknown even if it finishes late. `session.last_action` is the
 durable operation ID/state query; cancellation exceptions also receive these

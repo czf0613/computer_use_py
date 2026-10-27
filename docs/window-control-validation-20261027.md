@@ -1,6 +1,6 @@
 # 窗口后台控制集成验证 — 2026-10-27
 
-状态：**集成进行中，等待固定 macOS 提交及 Windows 修正候选/CI 结果**。
+状态：**macOS/Python/MCP 已整合，等待 Windows 修正候选/CI 结果**。
 本文件记录实现自检，不是独立 R 验收，也不是任意应用后台控制验收。
 唯一交付分支是 `refs/heads/codex/provider-window-control-20261027`，仓库为
 `https://github.com/czf0613/computer_use_py.git`。没有默认分支写入、tag、release、
@@ -16,10 +16,12 @@
 | Provider MCP 输入 | `933692576cc18ea84202ff9d97dc610c5a2b3a50`，Provider input_sync 已固定，本工作区起始 HEAD 与之相同；普通 merge 确认 already up to date，没有重抓移动 tip |
 | Windows 初始候选 | 按 SHA fetch 并普通 merge `a5e2c6a35fbaf4db9615fda19d8fcdf35a7c7e81`，含 fixture `f03d182beaf14a4d1f40c9d083246eec7ccbadea`；保留阶段祖先 |
 | Windows 后续修正 | 等待上层给出准确 SHA；不自行修改上层已交回 Windows Agent 的截图 deadline/quarantine 问题 |
-| macOS 最终候选 | 尚未收到准确 SHA；不猜移动分支，不读取其本机工作区 |
+| macOS 最终候选 | 按 SHA fetch 并普通 merge `b6a020645fb980db95e4c2bbd6ded72c417f7070`，自动合并 setup.py，保留 Windows 源/库及 macOS Security framework |
 
 Windows 候选 [CI 40479320493](https://github.com/czf0613/computer_use_py/actions/runs/40479320493)
-由上层监测；收到的状态仍是 pending，不能算通过。本集成尚未触发 workflow。
+由上层监测；上层后续报告部分库构建及 186 项测试通过，但 fixture 编译出现
+`C1083: build/window-fixtures/fixture-build.h` 找不到，**不是全绿**。
+等待原 Windows Agent 的准确修正 SHA。本集成尚未触发 workflow。
 
 ## Python / MCP 入口与边界
 
@@ -44,9 +46,15 @@ AX/UIA 写操作只有整个值替换及精确控件 invoke；坐标点击、键
 
 截图身份与语义身份分别建立。普通 macOS SCWindow 只读截图不应依赖 fixture/AX 身份；
 公共 API 不能凭同 PID/标题把它绑定到 AX 根。SCWindow 的保证限定原对象/进程实例及
-可观察失效，不能宣称排除了不可观察的跨进程 ABA。最终 macOS 实现及持续观察 stream
-的新鲜帧、close 生命周期说明，在收到固定提交并核验后补齐，不把方案中的短 stream
-描述预先当作最终实现事实。
+可观察失效，不能宣称排除了不可观察的跨进程 ABA。
+
+已合入的 macOS 后端确实是**每次截图创建短寿命 SCStream**，没有持续观察流。
+完整帧的 display timestamp 必须晚于本次 capture 开始；旧/不完整帧不替代新帧。
+成功路径等待 stop 并移除 output，迟到 start/stop 使用独立 retained owner；超时仍
+未完成时有界 capture gate 继续占用，close 返回 incomplete 而非释放活动 callback。
+native 离线测试覆盖实际 CMSampleBuffer 接收器、旧帧拒绝、两种 late-start 时序、
+会话 close 前后清理及像素所有权。contract 已澄清“成功返回已关闭”和“超时后保留
+待清理 owner”的区别，没有改 ABI，也没有把 GC 当清理确认。
 
 `window_profiles._APPROVED_EVIDENCE_SHA256` **保持空表**。注册候选不产生授权，
 生产写操作为 `background_not_verified`；fixture 成功或编译/合成通过不自动写入信任表。
@@ -85,7 +93,7 @@ capsule 析构和 GC 均不证明 AX/UIA provider 已返回。原生 actor 必�
 `.cache/window-integration-314t`。runner 校验 package/window/MCP/native 路径属于
 本 checkout；3.14t 在同进程 import 前、pytest 前后断言 GIL 关闭。
 
-以下是收到 macOS 后端前的实际阶段结果；此时本机 macOS extension 无窗口 ABI，
+以下是收到 macOS 后端前的实际阶段结果；当时本机 macOS extension 无窗口 ABI，
 `backend_unavailable` 被显式核验，不伪装为原生窗口测试通过。
 
 | 检查 | 实际结果 |
@@ -96,8 +104,6 @@ capsule 析构和 GC 均不证明 AX/UIA provider 已返回。原生 actor 必�
 | Python 3.14t MCP 三文件 | `94 passed, 1 warning in 5.27s`；`gil_enabled_after_pytest=False` |
 | Ruff，改动 MCP/runner/测试文件 | `All checks passed!` |
 | CI YAML / Python 3.10 syntax / 发布 workflow 差异检查 | `macOS matrix=14; Windows matrix=6 unchanged; Python 3.10 syntax=valid; release workflow=unchanged` |
-| 两 ABI 完整窗口 native/旧 capture/recording 回归 | **not_run**，等待 macOS 固定输入 |
-| 最终 testing/production 强制构建与 hooks 检查 | **not_run**，等待 macOS 固定输入 |
 
 AnyIO assertion-rewrite warning 来自先导入检查再执行 pytest，不是 GIL 开启。
 初次 3.14t 命令用了 `--no-sync` 未写 `--python 3.14t`，uv 提示与 `.python-version`
@@ -110,6 +116,74 @@ env -u PYTHONHOME -u PYTHONPATH UV_PROJECT_ENVIRONMENT=.cache/window-integration
 env -u PYTHONHOME -u PYTHONPATH uv run --no-sync python -I tests/mcp_window_checks.py
 env -u PYTHONHOME -u PYTHONPATH UV_PROJECT_ENVIRONMENT=.cache/window-integration-314t uv run --no-sync --python 3.14t python -I tests/mcp_window_checks.py --free-threaded
 ```
+
+合入 macOS 后的新一轮检查：
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 3.10/3.14t testing 强制构建，`SCAPKIT_TESTING=1 CFLAGS=-Werror` | 两者 exit 0，本 checkout ABI 1 |
+| 3.10 完整受影响离线 runner（含原有 release artifacts） | `422 passed in 38.63s` |
+| 3.14t 同一 runner | `421 passed, 1 skipped in 40.90s`；导入前后/pytest 后 GIL 关闭 |
+| 3.10 MCP 三文件 | `94 passed, 1 warning in 5.16s`；native ABI 1 |
+| 3.14t MCP 三文件 | `94 passed, 1 warning in 5.39s`；pytest 后 GIL 关闭 |
+| 三个新 macOS 模块 strict warnings/availability，13.0 与 15.0 target | 两个 `strict_warnings ...: passed` |
+| 同模块 clang static analysis，13.0 与 15.0 target | 两个 `static_analysis ...: passed` |
+| 3.14t production 强制构建/隔离导入 | exit 0，`production_test_hooks=absent`，ABI 1，GIL 关闭 |
+| 3.10 production 强制构建/隔离导入 | exit 0，`production_test_hooks=absent`，ABI 1，空生产信任表 |
+
+唯一 skip 是既有 `test_native_capture` 对 Python dict 分配时同步 GC 的要求，不适用
+free-threaded GC；不是跳过新的 window 测试，也没有弱化 GIL 断言。完整回归使用
+`tests/macos_window_checks.py`；MCP 仍使用独立 runner。仅新变更/真实失败触发重跑。
+
+## 本集成的自有 macOS fixture
+
+由本 checkout 重建 fixture；source hash
+`826b5520278953797bea9167ed6ab0a5db0293fb3f81762d166c1b16b880d30c`、binary hash
+`d7f5a799567efe0cde4f44bcff69eac7e725a84ed6e6a28b0f5ecfd2ac66d53e` 与已审核 pin
+完全一致，未调整 pin 或绕过检查。harness 只启动自己的子进程，使用最小新环境，
+按 PID/fixture 根选择对象；只预检已存在的权限，不申请权限，不读剪贴板，不保存截图。
+
+实际失败保留：第一次 BGRA/JPEG 与桥接成功，首次 AX 树返回
+`stale_element:tree_changed`；增加有限只读刷新后的下一次运行在 set_value 前得到
+`stale_element/not_dispatched`，目标未变化，脚本 exit 1。临时 testing-only
+诊断捕捉到树从 17 个节点变为 18 个，后两节点的 object/parent/role/bounds 等字段
+发生变化，旧快照被正确拒绝；诊断运行也 exit 1。临时诊断已移除，macOS native 源码
+与固定输入一致。没有重试任何 accepted/unknown 写操作。
+
+脚本现在最多三次只读 elements/validate_snapshot，只有确认 not_dispatched 且
+retry_hint=refresh 的 stale 快照才刷新；每项候选动作仍只提交一次。它为初始 AX
+树变动提供可见的准备步骤，不降低 native 身份/epoch/几何或生产 profile 保护。
+最终脚本 exit 0，确实发生一次只读快照刷新，未重试动作：BGRA/JPEG 均为 1080×804、
+mapping verified；`capture_open_without_ax_root`、exact bridge、explicit attachment
+和 sibling bridge rejection 均 passed；set_value accepted/effect verified，invoke
+accepted/effect unknown，同时 fixture 独立状态确认 `target_effect=true`（文本及计数）、
+`sibling_unchanged=true`。A1 关闭后旧 capture 被拒绝，A2/进程仍在；随后关闭 handles、
+终止并 reap 自有进程，`owned_process_cleanup=true`、`fixture_exit_code=0`。
+最后增加嵌套 finally，确保一个 handle close 失败不跳过另一个 handle/子进程清理，
+之后再次只跑该脚本也 exit 0，以上结果相同。源码与二进制 fixture pin 均未改动。
+测试脚本的原有 import 排序及独立 CLI 的 blocking-launch/catch-all lint 项已处理：
+排序修正，后两项用注明用途的局部 noqa；最终针对改动文件的 Ruff 通过。
+
+这些结果覆盖本机 macOS 26.6.2 arm64 自有 fixture 的指定操作，不是连续非干扰证明。
+截图成功也不保证不可观察的 ABA 被消灭；窗口身份和动作能力仍分别判断。
+`human_continuous_input=not_run`、`clipboard=not_accessed`、`profile_validation=not_run`。
+最终 production 构建不含 candidate-action hook，测试没有注入生产证据 pin。
+
+后合并复现命令（testing/production 需要分别 force rebuild）：
+
+```sh
+env -u PYTHONHOME -u PYTHONPATH SCAPKIT_TESTING=1 CFLAGS=-Werror uv run --no-sync --python 3.10 python -I setup.py build_ext --inplace --force
+env -u PYTHONHOME -u PYTHONPATH PYTHON_VARIANT=3.10 uv run --no-sync --python 3.10 python -I tests/macos_window_checks.py
+env -u PYTHONHOME -u PYTHONPATH PYTHON_VARIANT=3.14t UV_PROJECT_ENVIRONMENT=.cache/window-integration-314t uv run --no-sync --python 3.14t python -I tests/macos_window_checks.py
+sh tests/manual/build_window_fixture_macos.sh
+env -u PYTHONHOME -u PYTHONPATH uv run --no-sync --python 3.10 python -I -X faulthandler tests/manual/verify_window_macos.py --desktop
+env -u PYTHONHOME -u PYTHONPATH SCAPKIT_TESTING=0 CFLAGS=-Werror uv run --no-sync --python 3.10 python -I setup.py build_ext --inplace --force
+env -u PYTHONHOME -u PYTHONPATH PYTHON_VARIANT=3.10 uv run --no-sync --python 3.10 python -I tests/macos_window_checks.py --production
+```
+
+3.14t 的 force rebuild 同样加 `UV_PROJECT_ENVIRONMENT=.cache/window-integration-314t`
+及 `--python 3.14t`；不要用 3.10 编译产物代替。静态分析/availability 命令是
+`tests/window_macos_checks.py --target 13.0/15.0`，分析另加 `--analyze`。
 
 ## CI 接入和未验收项
 
@@ -128,7 +202,7 @@ Windows 编译失败改成 skipped、降低 GIL 要求或引入 OpenSSL 构建�
 更早 BSTR 编译失败及其修正保留在 [Windows handoff](window-windows-handoff.md)，
 不能用旧失败覆盖未来确实通过的最终结果，也不能提前宣称通过。
 
-下列均 **not_run / 未具备证据**：本集成的 macOS fixture 重验、Windows 桌面 UIA/WGC、
+下列均 **not_run / 未具备证据**：Windows 桌面 UIA/WGC、
 连续人类键鼠/修饰键非干扰、真实剪贴板哨兵、跨 DPI 设备、macOS 13/Intel、Windows
 10/ARM64 桌面、任意第三方应用后台控制、生产 profile 审核，以及指定最终 SHA 的
 独立 inspection worktree 验收。没有运行全套旧桌面 tests，没有操作用户应用、读取
