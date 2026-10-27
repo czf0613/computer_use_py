@@ -105,5 +105,6 @@ NSDictionary *SWAXRefresh(SWTarget *target);
 BOOL SWCaptureRefresh(SWTarget *target);
 #ifdef SCAPKIT_TESTING
 NSDictionary *SWTestFrame(NSString *mode);
+NSDictionary *SWTestAXTransport(NSString *mode, NSInteger depth, NSInteger count);
 #endif
 #endif

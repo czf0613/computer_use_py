@@ -11,14 +11,14 @@ import sysconfig
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def compiler_checks(target, analyze, lifecycle_only=False):
+def compiler_checks(target, analyze, lifecycle_only=False, production=False):
     includes = sysconfig.get_path("include")
     names = ("window.m", "window_capture.m") if lifecycle_only else ("window.m", "window_capture.m", "accessibility.m")
     for name in names:
         command = [
             "xcrun", "clang", "-fobjc-arc", "-fblocks", "-Wall", "-Wextra", "-Werror",
             "-Werror=unguarded-availability", f"-mmacosx-version-min={target}",
-            "-DPY_SSIZE_T_CLEAN", "-DSCAPKIT_TESTING=1",
+            "-DPY_SSIZE_T_CLEAN", *([] if production else ["-DSCAPKIT_TESTING=1"]),
             "-I" + includes, "-Inative_code/osx/include",
         ]
         if analyze:
@@ -42,6 +42,8 @@ def main():
     parser.add_argument("--production", action="store_true")
     parser.add_argument("--free-threaded", action="store_true")
     parser.add_argument("--lifecycle-only", action="store_true")
+    parser.add_argument("--review-repro", action="store_true")
+    parser.add_argument("--review-only", action="store_true")
     args = parser.parse_args()
     assert not ({"PYTHONHOME", "PYTHONPATH"} & os.environ.keys())
     assert sys.flags.isolated == 1
@@ -51,7 +53,7 @@ def main():
     if threaded:
         assert not sys._is_gil_enabled()
     if args.target:
-        return compiler_checks(args.target, args.analyze, args.lifecycle_only)
+        return compiler_checks(args.target, args.analyze, args.lifecycle_only, args.production)
     package = importlib.import_module("scapkit_computer_use")
     assert Path(package.__file__).resolve() == ROOT / "src/scapkit_computer_use/__init__.py"
     importlib.import_module("scapkit_computer_use.window")
@@ -70,12 +72,16 @@ def main():
     assert hasattr(native, "_test_window")
     import pytest
     files = [
-        "test_native_window_macos.py", "test_window_api.py", "test_window_identity.py", "test_window_coordinates.py",
+        "test_native_window_macos.py", "test_window_macos_review.py", "test_window_api.py", "test_window_identity.py", "test_window_coordinates.py",
         "test_native_validation.py", "test_native_arguments.py", "test_native_capture.py", "test_capture_lifecycle.py",
         "test_async_safety.py", "test_modifier_lifecycle.py", "test_process.py", "test_recording.py",
         "test_recording_integration.py", "test_native_recording.py", "test_recording_writer.py",
     ]
     selection = []
+    if args.review_only:
+        files = ["test_native_window_macos.py", "test_window_macos_review.py", "test_window_api.py", "test_window_identity.py", "test_window_coordinates.py"]
+    if args.review_repro:
+        files = ["test_window_macos_review.py"]
     if args.lifecycle_only:
         files = ["test_native_window_macos.py"]
         selection = ["-k", "session_close_tracks or known_minimized_capture or abi_uint32_pid"]

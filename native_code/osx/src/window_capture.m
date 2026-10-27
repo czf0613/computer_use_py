@@ -125,7 +125,8 @@ static atomic_bool captureBusy;
     NSError *startError, *stopError, *streamError;
     size_t width, height, stride;
     double captured, since;
-    BOOL abandoned, finished, received, stopIssued, startCompleted;
+    BOOL abandoned, finished, received, stopIssued, startCompleted, stopCompleted;
+    SWShot *cleanupOwner; // bounded self-owner until stop AND output removal succeed
 }
 - (void)start;
 - (void)abandon;
@@ -145,6 +146,9 @@ static atomic_bool captureBusy;
 }
 - (void)start
 {
+    // Retain native ownership even if the caller/capsule disappears and SCK
+    // completes late or fails teardown. At most one such flight holds the gate.
+    dispatch_sync(queue, ^{ self->cleanupOwner = self; });
     [stream startCaptureWithCompletionHandler:^(NSError *error) {
         @autoreleasepool {
             dispatch_async(self->queue, ^{
@@ -211,12 +215,19 @@ static atomic_bool captureBusy;
             dispatch_async(self->queue, ^{
                 self->stopError = error;
                 NSError *removeError = nil;
-                if (![owned removeStreamOutput:self type:SCStreamOutputTypeScreen error:&removeError] && !self->stopError) {
+                BOOL detached = [owned removeStreamOutput:self type:SCStreamOutputTypeScreen error:&removeError];
+                if (!detached && !self->stopError) {
                     self->stopError = removeError;
                 }
-                self->finished = YES;
-                self->stream = nil;
-                atomic_store(&captureBusy, false);
+                self->stopCompleted = YES; // a callback is not proof of cleanup
+                self->finished = !error && detached;
+                if (self->finished) {
+                    self->stream = nil;
+                    self->cleanupOwner = nil;
+                    atomic_store(&captureBusy, false);
+                }
+                // Failure retains stream/owner and the global gate. Do not
+                // automatically retry teardown or admit replacement streams.
                 dispatch_semaphore_signal(self->stopped);
             });
         }
@@ -252,9 +263,9 @@ BOOL SWCaptureCleanup(SWSession *s, double timeout)
 {
     SWShot *shot = s->captureFlight;
     if (!shot) { return YES; }
-    __block BOOL finished;
-    dispatch_sync(shot->queue, ^{ [shot abandon]; finished = shot->finished; });
-    if (!finished && timeout > 0) { wait_until(shot->stopped, SWNow() + timeout); }
+    __block BOOL finished, completed;
+    dispatch_sync(shot->queue, ^{ [shot abandon]; finished = shot->finished; completed = shot->stopCompleted; });
+    if (!completed && timeout > 0) { wait_until(shot->stopped, SWNow() + timeout); }
     dispatch_sync(shot->queue, ^{ finished = shot->finished; });
     if (finished) { s->captureFlight = nil; }
     return finished;
@@ -301,9 +312,9 @@ NSDictionary *SWCapture(SWSession *s, NSString *format, int quality, double time
     if (!started) {
         // A late successful start must stop itself. No borrowed session/capsule.
         dispatch_sync(shot->queue, ^{ [shot abandon]; });
-        BOOL stopped = wait_until(shot->stopped, stopDeadline);
-        if (stopped) { s->captureFlight = nil; }
-        return SWFail(stopped ? @"capture_timeout" : @"backend_busy");
+        wait_until(shot->stopped, stopDeadline);
+        BOOL cleaned = SWCaptureCleanup(s, 0);
+        return SWFail(cleaned ? @"capture_timeout" : @"backend_busy");
     }
     __block NSError *startError;
     dispatch_sync(shot->queue, ^{ startError = shot->startError; });
@@ -320,7 +331,7 @@ NSDictionary *SWCapture(SWSession *s, NSString *format, int quality, double time
         [shot stop];
     });
     if (!wait_until(shot->stopped, stopDeadline)) { return SWFail(@"backend_busy"); }
-    s->captureFlight = nil;
+    if (!SWCaptureCleanup(s, 0)) { t->stale = YES; return SWFail(@"backend_busy"); }
     __block NSError *stopError;
     dispatch_sync(shot->queue, ^{ stopError = shot->stopError; });
     if (stopError) { t->stale = YES; return SWError(@"capture_unavailable", @"ScreenCaptureKit", @(stopError.code), @"not_dispatched", @"never"); }
@@ -374,9 +385,65 @@ NSDictionary *SWCapture(SWSession *s, NSString *format, int quality, double time
     (void)output; (void)type; (void)error; self.detached = YES; return YES;
 }
 @end
+// Fault injection changes the transport's effects and completion results, while
+// the production SWShot/SWCaptureCleanup/SWClose state machine remains in use.
+@interface SWFaultStream : SWOfflineStream
+@property BOOL failStop, failRemove, sourceRunning;
+@property double stopDelay;
+@property id outputOwner;
+@end
+@implementation SWFaultStream
+- (void)startCaptureWithCompletionHandler:(void (^)(NSError *))completion
+{
+    [super startCaptureWithCompletionHandler:^(NSError *error) {
+        self.sourceRunning = !error; completion(error);
+    }];
+}
+- (void)stopCaptureWithCompletionHandler:(void (^)(NSError *))completion
+{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self.stopDelay * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        @autoreleasepool {
+            if (!self.failStop) { self.sourceRunning = NO; }
+            completion(self.failStop ? [NSError errorWithDomain:@"test.stop" code:1 userInfo:nil] : nil);
+        }
+    });
+}
+- (BOOL)removeStreamOutput:(id)output type:(SCStreamOutputType)type error:(NSError **)error
+{
+    if (self.failRemove) { if (error) { *error = [NSError errorWithDomain:@"test.remove" code:2 userInfo:nil]; } return NO; }
+    self.outputOwner = nil;
+    return [super removeStreamOutput:output type:type error:error];
+}
+@end
 NSDictionary *SWTestFrame(NSString *mode)
 {
     SWShot *shot = [SWShot new];
+    if ([mode hasPrefix:@"probe_"]) {
+        BOOL expected = false;
+        if (!atomic_compare_exchange_strong(&captureBusy, &expected, true)) { return SWFail(@"backend_busy"); }
+        SWFaultStream *transport = [SWFaultStream new]; transport.delay = 0.05;
+        transport.failStop = [mode isEqual:@"probe_stop_fail"] || [mode isEqual:@"probe_both_fail"];
+        transport.failRemove = [mode isEqual:@"probe_remove_fail"] || [mode isEqual:@"probe_both_fail"];
+        transport.stopDelay = [mode isEqual:@"probe_late_success"] ? 0.05 : 0;
+        transport.outputOwner = shot;
+        shot->stream = (SCStream *)transport;
+        SWSession *session = [SWSession new]; session->captureFlight = shot;
+        [shot start];
+        BOOL early = SWCaptureCleanup(session, 0.001);
+        BOOL close = SWClose(session);
+        BOOL retained = session->captureFlight != nil;
+        BOOL repeated = SWClose(session);
+        __block BOOL finished, released;
+        dispatch_sync(shot->queue, ^{ finished = shot->finished; released = shot->stream == nil; });
+        __weak SWShot *weakShot = shot;
+        session = nil; shot = nil;
+        // Probe runs in a disposable child process: failures intentionally keep
+        // the native quarantine alive, without resetting production gate state.
+        return SWOK(@{@"early_cleanup": @(early), @"close_cleanup": @(close), @"repeat_cleanup": @(repeated),
+            @"finished": @(finished), @"stream_released": @(released), @"flight_retained": @(retained),
+            @"capture_gate_busy": @(atomic_load(&captureBusy)), @"owner_alive": @(weakShot != nil),
+            @"source_running": @(transport.sourceRunning), @"output_detached": @(transport.detached)});
+    }
     if ([mode hasPrefix:@"close_"]) {
         SWOfflineStream *transport = [SWOfflineStream new]; transport.delay = 0.05;
         shot->stream = (SCStream *)transport;

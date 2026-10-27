@@ -10,6 +10,9 @@
 #include <unistd.h>
 #include <dlfcn.h>
 #include <math.h>
+#ifdef SCAPKIT_TESTING
+#include "window_ax_test_transport.h"
+#endif
 
 static id ax_copy(AXUIElementRef element, CFStringRef attribute)
 {
@@ -37,12 +40,20 @@ static CGRect ax_bounds(AXUIElementRef e)
 static NSArray *ax_children(AXUIElementRef e, CFStringRef attribute, NSUInteger cap, BOOL *overflow)
 {
     CFIndex count = 0;
-    if (SWDeadlineExpired() || AXUIElementGetAttributeValueCount(e, attribute, &count) != kAXErrorSuccess || count < 0) { return nil; }
+    if (SWDeadlineExpired()) { return nil; }
+    AXError error = AXUIElementGetAttributeValueCount(e, attribute, &count);
+    // A leaf may legally have no AXChildren attribute. IPC/invalid-object
+    // failures are not leaves, nor is a failed values read after a valid count.
+    if (error == kAXErrorAttributeUnsupported && CFEqual(attribute, kAXChildrenAttribute)) { return @[]; }
+    if (error != kAXErrorSuccess || count < 0) { return nil; }
     if ((NSUInteger)count > cap && overflow) { *overflow = YES; }
     count = MIN(count, (CFIndex)cap);
     if (!count) { return @[]; }
     CFArrayRef values = NULL;
     if (AXUIElementCopyAttributeValues(e, attribute, 0, count, &values) != kAXErrorSuccess) {
+        if (values) { CFRelease(values); } return nil;
+    }
+    if (!values || CFGetTypeID(values) != CFArrayGetTypeID() || CFArrayGetCount(values) != count) {
         if (values) { CFRelease(values); } return nil;
     }
     NSArray *result = CFBridgingRelease(values);
@@ -392,12 +403,13 @@ static NSArray *read_tree(SWSession *s, NSInteger depth, NSInteger cap, BOOL ref
             // by a same-name/same-geometry sibling; actions never look it up by name.
             node[@"object"] = object;
         }
-        [node removeObjectForKey:@"raw_identifier"];
+        if (references) { [node removeObjectForKey:@"raw_identifier"]; }
         NSUInteger index = result.count;
         [result addObject:node];
         NSInteger level = [pending[@"depth"] integerValue];
         if (level < depth && result.count < (NSUInteger)cap) {
             NSArray *children = ax_children(e, kAXChildrenAttribute, (NSUInteger)cap - result.count, NULL);
+            if (!children) { treeFailure = @"tree_children"; return nil; }
             for (id child in [children reverseObjectEnumerator]) {
                 // Explicit AXWindow boundaries must not enter a sibling/popup root.
                 NSString *role = SWString(ax_copy((__bridge AXUIElementRef)child, kAXRoleAttribute));
@@ -413,6 +425,21 @@ static NSArray *read_tree(SWSession *s, NSInteger depth, NSInteger cap, BOOL ref
     }
     return result;
 }
+static NSArray *fingerprint_from_nodes(NSArray *nodes)
+{
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:nodes.count];
+    for (NSDictionary *node in nodes) {
+        SWElement *ref = node[@"ref"];
+        NSMutableDictionary *entry = [node mutableCopy];
+        [entry removeObjectForKey:@"ref"];
+        if (ref->element) {
+            entry[@"object"] = (__bridge id)ref->element;
+            entry[@"raw_identifier"] = ref->rawIdentifier ?: (id)NSNull.null;
+        }
+        [result addObject:entry];
+    }
+    return result;
+}
 NSDictionary *SWElements(SWSession *s, NSInteger depth, NSInteger cap)
 {
     NSDictionary *failure = SWValidate(s);
@@ -422,8 +449,10 @@ NSDictionary *SWElements(SWSession *s, NSInteger depth, NSInteger cap)
     ++t->epoch; // every native snapshot invalidates preceding native refs too
     s->treeEpoch = t->epoch;
     uint64_t epoch = t->epoch;
-    NSArray *fingerprint = read_tree(s, depth, cap, NO);
-    NSArray *nodes = fingerprint ? read_tree(s, depth, cap, YES) : nil;
+    // DTO attributes and retained identity must describe the SAME observation.
+    // Validate that observation once; never hide a detected race with retries.
+    NSArray *nodes = read_tree(s, depth, cap, YES);
+    NSArray *fingerprint = nodes ? fingerprint_from_nodes(nodes) : nil;
     NSArray *after = nodes ? read_tree(s, depth, cap, NO) : nil;
     if (!nodes || t->epoch != epoch || ![fingerprint isEqual:after]) {
         ++t->epoch;
@@ -447,6 +476,30 @@ NSDictionary *SWValidateSnapshot(SWSession *s, uint64_t epoch, uint64_t revision
     return nil;
 }
 static BOOL known_bool(id value, BOOL expected) { return [value isEqual:expected ? @YES : @NO]; }
+#ifdef SCAPKIT_TESTING
+NSDictionary *SWTestAXTransport(NSString *mode, NSInteger depth, NSInteger count)
+{
+    axTransport = [SWAXTransport new]; axTransport->mode = mode;
+    @try {
+        SWTarget *t = [SWTarget new]; // deliberately NOT synthetic: use real read_tree
+        t->pid = getpid(); t->process = SWProcess(t->pid);
+        t->root = (AXUIElementRef)CFRetain(axTransport->root); t->monitoring = YES;
+        t->identifier = @"transport.root"; t->bounds = CGRectMake(0, 0, 200, 100);
+        SWSession *s = [SWSession new]; s->semanticTarget = t; s->process = t->process;
+        s->lastBounds = t->bounds; s->revision = 1;
+        NSDictionary *snapshot = SWElements(s, depth, count);
+        NSArray *nodes = snapshot[@"value"][@"elements"];
+        axTransport->validating = YES;
+        NSDictionary *validation = SWValidateSnapshot(s, s->treeEpoch, s->revision);
+        NSMutableDictionary *result = [@{@"snapshot_ok": snapshot[@"ok"], @"validate_ok": @(!validation),
+            @"node_count": @(nodes.count), @"error": snapshot[@"error"] ?: (id)NSNull.null,
+            @"snapshot_child_x": nodes.count > 1 ? nodes[1][@"bounds"][@"x"] : (id)NSNull.null,
+            @"fingerprint_child_x": s->fingerprint.count > 1 ? s->fingerprint[1][@"bounds"][@"x"] : (id)NSNull.null} mutableCopy];
+        SWClose(s);
+        return SWOK(result);
+    } @finally { axTransport = nil; }
+}
+#endif
 static NSMutableSet *revokedProfiles; // actor only, shared across sessions
 static BOOL descends_from(AXUIElementRef element, AXUIElementRef root)
 {

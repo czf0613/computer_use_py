@@ -15,5 +15,6 @@ PyObject *scapkit_test_window_mutate(PyObject *, PyObject *);
 PyObject *scapkit_test_window_candidate_action(PyObject *, PyObject *);
 PyObject *scapkit_test_window_mapping(PyObject *, PyObject *);
 PyObject *scapkit_test_window_frame(PyObject *, PyObject *);
+PyObject *scapkit_test_window_ax_transport(PyObject *, PyObject *);
 #endif
 #endif
