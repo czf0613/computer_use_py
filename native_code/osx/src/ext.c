@@ -3,8 +3,16 @@
 #include "control.h"
 #include "capture.h"
 #include "recording.h"
+#include "window.h"
 
 static PyMethodDef ScapkitMethods[] = {
+    {"_window_enumerate", scapkit_window_enumerate, METH_VARARGS, NULL},
+    {"_window_open", scapkit_window_open, METH_VARARGS, NULL},
+    {"_window_close", scapkit_window_close, METH_VARARGS, NULL},
+    {"_window_attach", scapkit_window_attach, METH_VARARGS, NULL},
+    {"_window_screenshot", scapkit_window_screenshot, METH_VARARGS, NULL},
+    {"_window_inspect", scapkit_window_inspect, METH_VARARGS, NULL},
+    {"_window_action", scapkit_window_action, METH_VARARGS, NULL},
     {"list_displays", scapkit_list_displays, METH_NOARGS, NULL},
     {"get_mouse_position", scapkit_get_mouse_position, METH_NOARGS, NULL},
     {"move_mouse", scapkit_move_mouse, METH_VARARGS, NULL},
@@ -24,6 +32,11 @@ static PyMethodDef ScapkitMethods[] = {
     {"stop_recording", scapkit_stop_recording, METH_VARARGS, NULL},
     {"_abort_recording", scapkit_abort_recording, METH_VARARGS, NULL},
 #ifdef SCAPKIT_TESTING
+    {"_test_window", scapkit_test_window, METH_VARARGS, NULL},
+    {"_test_window_mutate", scapkit_test_window_mutate, METH_VARARGS, NULL},
+    {"_test_window_candidate_action", scapkit_test_window_candidate_action, METH_VARARGS, NULL},
+    {"_test_window_mapping", scapkit_test_window_mapping, METH_VARARGS, NULL},
+    {"_test_window_frame", scapkit_test_window_frame, METH_VARARGS, NULL},
     {"_test_recording", scapkit_test_recording, METH_VARARGS, NULL},
     {"_test_recording_tick", scapkit_test_recording_tick, METH_VARARGS, NULL},
     {"_test_stop_recording_at", scapkit_test_stop_recording_at, METH_VARARGS, NULL},
@@ -51,6 +64,11 @@ PyInit__scapkit(void)
     PyObject *module = PyModule_Create(&scapkit_module);
     if (!module)
     {
+        return NULL;
+    }
+    if (PyModule_AddIntConstant(module, "WINDOW_BACKEND_ABI", 1) < 0)
+    {
+        Py_DECREF(module);
         return NULL;
     }
 #ifdef Py_GIL_DISABLED

@@ -13,7 +13,9 @@
 
 static const NSUInteger EventLimit = 4096;
 static volatile sig_atomic_t stopRequested = 0;
+static volatile sig_atomic_t closeRequested = 0;
 static void requestStop(int signalNumber) { (void)signalNumber; stopRequested = 1; }
+static void requestClose(int signalNumber) { (void)signalNumber; closeRequested = 1; }
 static uint64_t nowNS(void) {
     struct timespec value;
     clock_gettime(CLOCK_MONOTONIC, &value);
@@ -45,6 +47,7 @@ static void die(const char *message) {
 @property BOOL offline, background, running, recreating;
 @property uint64_t sequence, snapshotSequence, dropped;
 @property int directoryFD;
+@property pid_t supervisorPID;
 @property NSTimer *timer;
 - (Record *)newRecord:(NSString *)slot;
 - (void)event:(NSString *)type record:(Record *)record data:(NSDictionary *)data;
@@ -113,6 +116,19 @@ static void die(const char *message) {
 @end
 
 @implementation FixtureWindow
+- (NSString *)accessibilityHelp {
+    // Public, exact identity bridge. No private AX window-number API and no
+    // external state-file path is necessary for a native client to bind roots.
+    if (!self.record || !self.fixture) { return nil; }
+    NSDictionary *metadata = @{@"schema": @"scapkit.fixture.bridge.v1",
+        @"source": @FIXTURE_BUILD_SHA256, @"version": @"window-fixture-v1",
+        @"pid": @(getpid()), @"process_start": self.fixture.processStart,
+        @"process_token": self.fixture.processToken, @"instance": self.record.token,
+        @"slot": self.record.slot, @"window_number": @(self.windowNumber),
+        @"modal": @(self.record.modal), @"closed": @(self.record.closed)};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:metadata options:NSJSONWritingSortedKeys error:NULL];
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
 - (void)sendEvent:(NSEvent *)event {
     // Only events dispatched to this NSWindow; never a local/global event monitor.
     if (event.window == self && self.record) {
@@ -177,6 +193,7 @@ static void die(const char *message) {
         _events = [NSMutableArray array];
         _processToken = token();
         _directoryFD = -1;
+        _supervisorPID = getppid();
         _running = YES;
         struct proc_bsdinfo info = {0};
         if (proc_pidinfo(getpid(), PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) {
@@ -450,7 +467,13 @@ static void die(const char *message) {
 }
 - (void)tick:(NSTimer *)timer {
     (void)timer;
-    if (stopRequested) { [NSApp terminate:nil]; return; }
+    if (stopRequested || getppid() != self.supervisorPID) { [NSApp terminate:nil]; return; }
+    if (closeRequested) {
+        closeRequested = 0;
+        for (Record *record in self.records) {
+            if ([record.slot isEqualToString:@"A1"] && !record.closed) { [record.window close]; break; }
+        }
+    }
     [self publish];
 }
 @end
@@ -518,16 +541,22 @@ int main(int argc, const char *argv[]) {
         } else {
             signal(SIGTERM, requestStop);
             signal(SIGINT, requestStop);
+            // Harness-owned lifecycle trigger, delivered only to its own child.
+            signal(SIGUSR1, requestClose);
             [NSApplication sharedApplication];
             NSApp.delegate = fixture;
             // finishLaunching can activate a regular app. Finish it while activation
             // is prohibited, then allow manual activation of our accessory windows.
             // B uses the same safe startup; humans focus it by clicking its text box.
-            if (![NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited]) {
+            if (NSApp.activationPolicy != NSApplicationActivationPolicyProhibited) {
+                [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+            }
+            if (NSApp.activationPolicy != NSApplicationActivationPolicyProhibited) {
                 die("cannot prohibit startup activation");
             }
             [NSApp finishLaunching];
-            if (![NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory]) {
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+            if (NSApp.activationPolicy != NSApplicationActivationPolicyAccessory) {
                 die("cannot enable accessory windows");
             }
             [fixture startWindows];
