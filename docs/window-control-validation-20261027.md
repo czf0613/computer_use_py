@@ -1,6 +1,6 @@
 # 窗口后台控制集成验证 — 2026-10-27
 
-状态：**macOS/Python/MCP 已整合，等待 Windows 修正候选/CI 结果**。
+状态：**已整合 Windows 修正候选，等待集成 Windows CI 和 macOS review 修复**。
 本文件记录实现自检，不是独立 R 验收，也不是任意应用后台控制验收。
 唯一交付分支是 `refs/heads/codex/provider-window-control-20261027`，仓库为
 `https://github.com/czf0613/computer_use_py.git`。没有默认分支写入、tag、release、
@@ -15,13 +15,16 @@
 | 公共 Python/ABI 合同 | `01b318287d40d9124ae2708eaa3f1fcc6821cbbc` |
 | Provider MCP 输入 | `933692576cc18ea84202ff9d97dc610c5a2b3a50`，Provider input_sync 已固定，本工作区起始 HEAD 与之相同；普通 merge 确认 already up to date，没有重抓移动 tip |
 | Windows 初始候选 | 按 SHA fetch 并普通 merge `a5e2c6a35fbaf4db9615fda19d8fcdf35a7c7e81`，含 fixture `f03d182beaf14a4d1f40c9d083246eec7ccbadea`；保留阶段祖先 |
-| Windows 后续修正 | 等待上层给出准确 SHA；不自行修改上层已交回 Windows Agent 的截图 deadline/quarantine 问题 |
-| macOS 最终候选 | 按 SHA fetch 并普通 merge `b6a020645fb980db95e4c2bbd6ded72c417f7070`，自动合并 setup.py，保留 Windows 源/库及 macOS Security framework |
+| Windows 后续修正 | 按 SHA fetch 并普通 merge `73d9bf53724f98831b06b7406274e55e41f922ef`，再普通 merge `50f09b62be977dca79fd27010f774b1a8d22194b`；统一截图 deadline、修正 fixture header 路径及测试参数 |
+| macOS 当前候选 | 按 SHA fetch 并普通 merge `b6a020645fb980db95e4c2bbd6ded72c417f7070`，自动合并 setup.py，保留 Windows 源/库及 macOS Security framework；review 新发现的三项问题等待原 Agent 修复 |
 
 Windows 候选 [CI 40479320493](https://github.com/czf0613/computer_use_py/actions/runs/40479320493)
-由上层监测；上层后续报告部分库构建及 186 项测试通过，但 fixture 编译出现
-`C1083: build/window-fixtures/fixture-build.h` 找不到，**不是全绿**。
-等待原 Windows Agent 的准确修正 SHA。本集成尚未触发 workflow。
+由上层监测；Windows handoff 记录六项库构建及各 186 项测试通过，但 fixture 编译出现
+`C1083: build/window-fixtures/fixture-build.h` 找不到，**不是全绿**，后续 MCP/production
+步骤未运行。修正候选的 [CI 40481667396](https://github.com/czf0613/computer_use_py/actions/runs/40481667396)
+测试 `73d9bf5`，本轮查询为 `in_progress`，而且它不含 `50f09b6` 的参数修正。
+本集成候选发布后单独 dispatch `windows.yml`；准确 run URL/测试 SHA 由 Provider
+回执记录，取得真实结果前不算 Windows 原生或 Windows MCP 通过。
 
 ## Python / MCP 入口与边界
 
@@ -50,8 +53,9 @@ AX/UIA 写操作只有整个值替换及精确控件 invoke；坐标点击、键
 
 已合入的 macOS 后端确实是**每次截图创建短寿命 SCStream**，没有持续观察流。
 完整帧的 display timestamp 必须晚于本次 capture 开始；旧/不完整帧不替代新帧。
-成功路径等待 stop 并移除 output，迟到 start/stop 使用独立 retained owner；超时仍
-未完成时有界 capture gate 继续占用，close 返回 incomplete 而非释放活动 callback。
+通常路径等待 stop 并移除 output，迟到 start/stop 使用独立 retained owner；超时仍
+未完成时有界 capture gate 继续占用。**但独立 review 已报告 stop/remove 均失败时
+错误释放 gate 并把 close 报为成功，尚待修复，不能据此宣称所有失败路径清理正确。**
 native 离线测试覆盖实际 CMSampleBuffer 接收器、旧帧拒绝、两种 late-start 时序、
 会话 close 前后清理及像素所有权。contract 已澄清“成功返回已关闭”和“超时后保留
 待清理 owner”的区别，没有改 ABI，也没有把 GC 当清理确认。
@@ -197,8 +201,29 @@ Windows **保留原 6 项矩阵**（x64 3.10/3.14/3.13t/3.14t、ARM64 3.14/3.14t
 所有既有断言，仅把允许的普通 x64 MCP job 接入含 window 的隔离 runner；没有将
 Windows 编译失败改成 skipped、降低 GIL 要求或引入 OpenSSL 构建。
 
-上层已报告 Windows 外层 actor deadline 早于内层 screenshot deadline，会让正常
-无帧触发永久 quarantine；原 Windows Agent 正在修复/增加合成验证，本阶段未代改。
+Windows 的 `73d9bf5` 已将 admission、排队、WGC 等帧和编码统一为同一个 absolute
+deadline；额外一秒仅用于完成/清理 grace，不是延长等帧预算。新离线场景区分正常
+`capture_timeout` 后 actor 仍可用与真实 hung capture/cleanup 的永久 quarantine。
+fixture `/FI` 参数现为生成 header 的绝对路径。本机没有 Windows 编译器/运行环境，
+这些原生行为仍由集成 CI 验证，不从本地语法检查推断通过。
+
+本轮先离线复现新 child harness 的 `screenshot(timeout=0.1)` 与冻结公共签名不符，
+真实报 `TypeError: got an unexpected keyword argument 'timeout'`。本集成修正为
+`timeout_seconds`，随后普通合并上层提供的相同修正 `50f09b6`，保留双方祖先。
+Python 3.10/3.14t 的 AST/实际 `inspect.signature.bind` 检查通过，3.14t GIL 保持关闭；
+没有调用 native capture。针对新文件的 Ruff 首次报告 subprocess.run 缺少显式
+`check`，现补 `check=False`，保留对子进程 returncode/stdout/stderr 的原断言。
+重新检查通过。六项 Windows 矩阵及新增 MCP runner 保持，macOS native/公共 API/MCP
+实现与已测 `5cc64663bd0cfba060c0b2894860443986d33421` 完全一致，未重复未变化的
+macOS 桌面/双 ABI 整套检查，也未 dispatch macOS 或 release workflow。
+
+上层的独立 macOS review 针对 `b6a0206` 离线复现了三项生产路径问题：
+`SWShot.stop` 在 stop/remove 均失败时仍完成并释放 gate；`AXChildren` count/values
+错误被 `read_tree` 当空树；`SWElements` 仅比较前后 fingerprint，未校验中间实际
+返回 nodes 内容。原 macOS Agent 正在修复，本集成未修改这三段；等待准确发布 SHA。
+上述已通过的本地检查保留为其实际覆盖范围内的结果，不能据此否定新失败或宣称
+独立验收完成。最终公共接口/MCP/Windows 的独立 review 同样未完成。
+
 更早 BSTR 编译失败及其修正保留在 [Windows handoff](window-windows-handoff.md)，
 不能用旧失败覆盖未来确实通过的最终结果，也不能提前宣称通过。
 
