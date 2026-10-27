@@ -200,6 +200,28 @@ These new timeout tests have not run on Windows at this revision. Local Python
 errors in the timeout test files; those were corrected before the passing rerun.
 No Windows compiler or desktop result is inferred from local checks.
 
+### Timeout test keyword correction
+
+Review of `73d9bf53724f98831b06b7406274e55e41f922ef` found that the new child
+test called `WindowSession.screenshot(timeout=0.1)`, but the frozen public keyword
+is `timeout_seconds`. That call raises `TypeError` before entering native capture,
+so it cannot establish hung-provider coverage. The test now uses
+`timeout_seconds=0.1`. Its public `open_window`, `screenshot` and both `aclose`
+calls are checked offline by binding their AST arguments to the actual Python
+`inspect.signature` objects, without invoking any method or importing the desktop
+extension. This signature check is separate from Windows native acceptance.
+The Python 3.10 and 3.14t checks passed for all four call sites; 3.14t also
+confirmed the GIL remained disabled. The temporary checker initially resolved
+the checkout root one directory too high and failed to import the package;
+correcting that checker path produced the passing results above.
+
+[Run 40481667396](https://github.com/czf0613/computer_use_py/actions/runs/40481667396)
+tests the older `73d9bf5` commit and was still running when this correction was
+prepared. It does not test the corrected keyword. Per caller steering, this
+correction does not dispatch a duplicate matrix; the integration Windows CI must
+validate the corrected commit, including native timeout and MCP tests. Historical
+CI failures above and all desktop acceptance limits remain unchanged.
+
 ### Offline coverage
 
 `tests/test_native_window_windows.py` drives actual native capsule consumption,
