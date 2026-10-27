@@ -5,6 +5,36 @@ namespace scap::window
 namespace
 {
 std::atomic<int> live_roots{0}, live_nodes{0}, wrong_thread_release{0};
+// A test-only resource that is held by the real process Actor while capturing
+// or cleaning up. Only observation/release bypass its queue, never native work.
+std::atomic<int> live_captures{0}, completed_captures{0}, capture_blocked{0};
+std::atomic<bool> capture_probe_expired{false};
+std::mutex capture_probe_mutex;
+std::condition_variable capture_probe_changed;
+bool capture_probe_released = false;
+void block_capture_probe(int phase)
+{
+    std::unique_lock lock(capture_probe_mutex);
+    capture_blocked = phase;
+    // Failsafe for a broken test: never leave an immortal synthetic blocker.
+    if (!capture_probe_changed.wait_for(lock, std::chrono::seconds(20), [] { return capture_probe_released; }))
+    { capture_probe_expired = true; }
+    capture_blocked = 0;
+}
+struct SyntheticCaptureResource
+{
+    int mode;
+    std::thread::id thread = std::this_thread::get_id();
+    explicit SyntheticCaptureResource(int value) : mode(value) { ++live_captures; }
+    ~SyntheticCaptureResource()
+    {
+        if (mode == 8) { block_capture_probe(2); }
+        if (mode == 6) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        if (thread != std::this_thread::get_id()) { ++wrong_thread_release; }
+        --live_captures;
+        ++completed_captures;
+    }
+};
 struct SyntheticNode final : Node
 {
     std::thread::id thread = std::this_thread::get_id();
@@ -77,12 +107,19 @@ struct SyntheticCapture final : CaptureTarget
     std::weak_ptr<Target> target;
     int mode = 0;
     explicit SyntheticCapture(const std::shared_ptr<Target> &value) : target(value) {}
-    Pixels capture(const Geometry &, double, double &at) override
+    Pixels capture(const Geometry &, Clock::time_point deadline, double &at) override
     {
         if (mode == 1) { target.lock()->geometry.bounds.width += 1; target.lock()->life->changed(true); }
         if (mode == 2) { target.lock()->life->invalidate(); }
         if (mode == 3) { throw Failure{"capture_unavailable", "HRESULT", DXGI_ERROR_DEVICE_REMOVED}; }
         if (mode == 4) { fail("capture_timeout"); }
+        if (mode >= 6)
+        {
+            SyntheticCaptureResource resource(mode);
+            if (mode == 7) { block_capture_probe(1); }
+            else { std::this_thread::sleep_until(deadline); }
+            fail("capture_timeout"); // resource cleanup must finish before the Actor reports this.
+        }
         Pixels pixels; pixels.width = mode == 5 ? 60 : 64; pixels.height = 32; pixels.stride = pixels.width * 4;
         pixels.data.resize(static_cast<size_t>(pixels.stride) * pixels.height, 127);
         at = double(clock100()) / 10000000.0;
@@ -90,6 +127,24 @@ struct SyntheticCapture final : CaptureTarget
     }
 };
 } // namespace
+std::optional<Result> test_capture_control(const std::string &command)
+{
+    if (command == "capture_probe_release")
+    {
+        { std::lock_guard lock(capture_probe_mutex); capture_probe_released = true; }
+        capture_probe_changed.notify_all();
+        return Result{};
+    }
+    if (command == "capture_probe_state")
+    {
+        Result out; out.type = Result::Type::context;
+        out.subject = {{"live", std::to_string(live_captures)}, {"completed", std::to_string(completed_captures)},
+                       {"blocked", std::to_string(capture_blocked)}, {"expired", capture_probe_expired ? "1" : "0"},
+                       {"wrong_thread_release", std::to_string(wrong_thread_release)}};
+        return out;
+    }
+    return std::nullopt;
+}
 Result Registry::synthetic(const std::string &command, const Ref &session)
 {
     if (command == "bstr")
@@ -160,6 +215,14 @@ Result Registry::synthetic(const std::string &command, const Ref &session)
     else if (command == "device_error" && capture) { capture->mode = 3; }
     else if (command == "capture_timeout" && capture) { capture->mode = 4; }
     else if (command == "unmapped_frame" && capture) { capture->mode = 5; }
+    else if (command == "normal_frame" && capture) { capture->mode = 0; }
+    else if ((command == "no_frame_deadline" || command == "hung_native" || command == "hung_cleanup") && capture)
+    {
+        std::lock_guard lock(capture_probe_mutex);
+        if (live_captures) { fail("backend_protocol_error"); }
+        capture_probe_released = false; capture_probe_expired = false;
+        capture->mode = command == "no_frame_deadline" ? 6 : command == "hung_native" ? 7 : 8;
+    }
     else if (command == "invokes" && semantic)
     {
         Result out; out.type = Result::Type::receipt; out.operation = std::to_string(semantic->invoked); return out;

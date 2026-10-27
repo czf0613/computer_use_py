@@ -98,7 +98,8 @@ struct Semantic
 struct CaptureTarget
 {
     virtual ~CaptureTarget() = default;
-    virtual Pixels capture(const Geometry &, double, double &) = 0;
+    // The caller's absolute deadline includes time spent queued on the actor.
+    virtual Pixels capture(const Geometry &, Clock::time_point, double &) = 0;
 };
 struct Target
 {
@@ -183,6 +184,7 @@ struct Work
     std::atomic<int> phase{0};
     std::atomic<bool> abandoned{false};
     Clock::time_point deadline;
+    const char *timeout_code = "backend_busy";
     Result result;
     void checkpoint();
     void dispatch();
@@ -201,7 +203,7 @@ class Registry
     Result close(const Ref &);
     Result attach(const Ref &, const Ref &);
     Result inspect(const Ref &, const std::string &, int, int, uint64_t, uint64_t);
-    Result screenshot(const Ref &, const std::string &, int, double);
+    Result screenshot(const Ref &, const std::string &, int, Clock::time_point);
     Result action(const Ref &, const Ref &, uint64_t, uint64_t, const std::string &,
                   const std::wstring &, const Grant &, const std::string &, Work &);
     void validate_snapshot(Entry &, uint64_t, uint64_t);
@@ -225,12 +227,13 @@ class Actor
   public:
     Actor();
     Result call(std::function<Result(Registry &, Work &)>, double timeout = 5, bool cleanup = false,
-                bool write = false);
+                bool write = false, bool capture_wait = false);
 };
 Actor &actor();
 PyObject *result_object(const Result &);
 #ifdef SCAPKIT_TESTING
 void test_bstr_value_pattern();
+std::optional<Result> test_capture_control(const std::string &);
 PyObject *py_test_window(PyObject *, PyObject *);
 #endif
 } // namespace scap::window

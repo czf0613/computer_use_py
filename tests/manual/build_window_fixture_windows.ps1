@@ -8,6 +8,9 @@ try {
     # between Windows PowerShell 5.1 and PowerShell 7.
     Set-Content -LiteralPath 'build/window-fixtures/fixture-build.h' -Encoding ascii `
         -Value ('#define FIXTURE_BUILD_SHA256 "' + $fixtureHash + '"')
+    # /FI uses include-file lookup (relative to the source), not output-file
+    # lookup. Pass one absolute argument, including when the checkout has spaces.
+    $fixtureHeader = (Resolve-Path -LiteralPath 'build/window-fixtures/fixture-build.h').ProviderPath
     # A data-only PE resource ties adapter recognition to this exact fixture source.
     # It is not a write authorization; profiles must still pin the executable hash.
     Set-Content -LiteralPath 'build/window-fixtures/fixture.rc' -Encoding ascii `
@@ -16,7 +19,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "rc.exe exited $LASTEXITCODE" }
     $fixtureFlags = @('/nologo', '/std:c++20', '/EHsc', '/utf-8', '/W4', '/permissive-',
         '/DUNICODE', '/D_UNICODE', '/D_WIN32_WINNT=0x0A00',
-        '/FIbuild/window-fixtures/fixture-build.h',
+        ('/FI' + $fixtureHeader),
         '/Fobuild/window-fixtures/window-fixture-windows.obj',
         '/Febuild/window-fixtures/window-fixture-windows.exe')
     if ($env:SCAPKIT_ANALYZE -eq '1') { $fixtureFlags += '/analyze' }

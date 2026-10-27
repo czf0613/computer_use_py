@@ -132,9 +132,9 @@ struct WindowCapture final : CaptureTarget
     {
         try { item.Closed(closed); } catch (...) { life->cleanup_failed = true; life->invalidate(); }
     }
-    Pixels capture(const Geometry &, double timeout, double &captured_at) override
+    Pixels capture(const Geometry &, Clock::time_point deadline, double &captured_at) override
     {
-        const auto deadline = Clock::now() + std::chrono::duration<double>(timeout);
+        if (Clock::now() >= deadline) { fail("capture_timeout"); }
         auto size = item.Size();
         if (size.Width <= 0 || size.Height <= 0 || size.Width > 16384 || size.Height > 16384 ||
             static_cast<uint64_t>(size.Width) * size.Height * 4 > max_bytes)
@@ -156,6 +156,7 @@ struct WindowCapture final : CaptureTarget
         winrt::com_ptr<IInspectable> inspectable;
         check(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put()));
         auto direct = inspectable.as<winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice>();
+        if (Clock::now() >= deadline) { fail("capture_timeout"); }
         auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             direct, DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, size);
         GraphicsCaptureSession session{nullptr};
@@ -172,8 +173,10 @@ struct WindowCapture final : CaptureTarget
         };
         try
         {
+            if (Clock::now() >= deadline) { fail("capture_timeout"); }
             session = pool.CreateCaptureSession(item);
             session.IsCursorCaptureEnabled(false);
+            if (Clock::now() >= deadline) { fail("capture_timeout"); }
             session.StartCapture();
             while (!incoming)
             {

@@ -14,7 +14,8 @@ void Token::consume()
 }
 void Work::checkpoint()
 {
-    if (abandoned || Clock::now() >= deadline || phase == 3) { fail("backend_busy"); }
+    if (abandoned || phase == 3) { fail("backend_busy"); }
+    if (Clock::now() >= deadline) { fail(timeout_code); }
 }
 void Work::dispatch()
 {
@@ -192,7 +193,7 @@ Result Registry::inspect(const Ref &handle, const std::string &query, int depth,
     out.type = Result::Type::snapshot;
     return out;
 }
-Result Registry::screenshot(const Ref &handle, const std::string &format, int quality, double timeout)
+Result Registry::screenshot(const Ref &handle, const std::string &format, int quality, Clock::time_point deadline)
 {
     auto &entry = get(handle, Kind::session);
     if (!entry.capture) { fail("unsupported_background_operation"); }
@@ -201,9 +202,12 @@ Result Registry::screenshot(const Ref &handle, const std::string &format, int qu
     if (out.geometry.minimized) { fail("window_minimized"); }
     auto geometry = out.geometry;
     auto revision = out.revision;
-    out.pixels = entry.capture->capture->capture(geometry, timeout, out.captured_at);
+    if (Clock::now() >= deadline) { fail("capture_timeout"); }
+    out.pixels = entry.capture->capture->capture(geometry, deadline, out.captured_at);
+    if (Clock::now() >= deadline) { fail("capture_timeout"); }
     identity(out, entry);
     if (geometry != out.geometry || out.revision != revision) { fail("geometry_changed"); }
+    if (Clock::now() >= deadline) { fail("capture_timeout"); }
     if (!out.pixels.width || !out.pixels.height || out.pixels.width > 16384 || out.pixels.height > 16384 ||
         static_cast<uint64_t>(out.pixels.width) * out.pixels.height * 4 > max_bytes ||
         out.pixels.stride < out.pixels.width * 4 ||
@@ -212,6 +216,7 @@ Result Registry::screenshot(const Ref &handle, const std::string &format, int qu
     if (format == "jpeg") { out.encoded = encode_window_jpeg(out.pixels, quality); }
     identity(out, entry);
     if (geometry != out.geometry || out.revision != revision) { fail("geometry_changed"); }
+    if (Clock::now() >= deadline) { fail("capture_timeout"); }
     out.mapping = out.pixels.width == out.geometry.bounds.width && out.pixels.height == out.geometry.bounds.height;
     out.format = format;
     static uint64_t next_frame = 1;
@@ -327,13 +332,20 @@ void Actor::run() noexcept
         try { registry.reap(); } catch (...) { std::lock_guard lock(mutex); quarantine = true; }
     }
 }
-Result Actor::call(std::function<Result(Registry &, Work &)> function, double timeout, bool cleanup, bool write)
+Result Actor::call(std::function<Result(Registry &, Work &)> function, double timeout, bool cleanup,
+                   bool write, bool capture_wait)
 {
     auto work = std::make_shared<Work>();
     work->deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeout));
+    work->timeout_code = capture_wait ? "capture_timeout" : "backend_busy";
+    // WGC must observe the SAME deadline, then close its frame/session/pool.
+    // This fixed grace is only for completion/cleanup, never another frame budget.
+    // Native creation, copy, encoding or cleanup that does not return within it
+    // still quarantines this actor; no replacement actor or unbounded wait.
+    const auto completion_deadline = work->deadline + std::chrono::seconds(capture_wait ? 1 : 0);
     {
         std::unique_lock lock(mutex);
-        if (!changed.wait_until(lock, work->deadline, [&] { return initialized; }))
+        if (!changed.wait_until(lock, completion_deadline, [&] { return initialized; }))
         { quarantine = true; throw Failure{"backend_busy"}; }
         if (startup_error) { throw *startup_error; }
         if ((quarantine && !cleanup) || jobs.size() >= 64) { fail("backend_busy"); }
@@ -341,13 +353,15 @@ Result Actor::call(std::function<Result(Registry &, Work &)> function, double ti
     }
     changed.notify_one();
     std::unique_lock lock(work->mutex);
-    if (!work->changed.wait_until(lock, work->deadline, [&] { return work->done; }))
+    if (!work->changed.wait_until(lock, completion_deadline, [&] { return work->done; }))
     {
         work->abandoned = true;
         int phase = work->phase.load();
         while (phase != 2 && phase != 3 && !work->phase.compare_exchange_weak(phase, 3)) {}
         { std::lock_guard actor_lock(mutex); quarantine = true; }
-        throw Failure{write && phase == 2 ? "outcome_unknown" : "backend_busy", "actor", 0,
+        const char *domain = cleanup ? "actor.cleanup_incomplete" :
+                             capture_wait ? "actor.cleanup_unknown" : "actor";
+        throw Failure{write && phase == 2 ? "outcome_unknown" : "backend_busy", domain, WAIT_TIMEOUT,
                        write && phase == 2 ? "unknown" : "not_dispatched", "never"};
     }
     return std::move(work->result);
@@ -640,7 +654,11 @@ PyObject *py_test_window(PyObject *, PyObject *args)
         Result result;
         {
             NoPython detached;
-            result = actor().call([=](Registry &registry, Work &) { return registry.synthetic(name, ref); });
+            // Test-only observation/release of a deliberately blocked synthetic
+            // capture. It cannot submit work or bypass a quarantined actor.
+            auto control = test_capture_control(name);
+            result = control ? std::move(*control) :
+                actor().call([=](Registry &registry, Work &) { return registry.synthetic(name, ref); });
         }
         return result_object(result);
     });
@@ -713,7 +731,11 @@ PyObject *py_window_screenshot(PyObject *, PyObject *args)
         auto ref = parse_ref(obj, Kind::session); auto encoding = parse_string(format); choice(encoding, "jpeg", "bgra");
         int compression = static_cast<int>(integer(quality, 0, 100)); double duration = seconds(timeout);
         Result result;
-        { NoPython detached; result = actor().call([=](Registry &r, Work &) { return r.screenshot(ref, encoding, compression, duration); }, duration); }
+        {
+            NoPython detached;
+            result = actor().call([=](Registry &r, Work &work)
+                { return r.screenshot(ref, encoding, compression, work.deadline); }, duration, false, false, true);
+        }
         return result_object(result);
     });
 }
