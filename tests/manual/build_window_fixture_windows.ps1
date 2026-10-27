@@ -4,6 +4,15 @@ Push-Location (Join-Path $PSScriptRoot '../..')
 try {
     New-Item -ItemType Directory -Force 'build/window-fixtures' | Out-Null
     $fixtureHash = (Get-FileHash 'tests/manual/window_fixture_windows.cpp' -Algorithm SHA256).Hash.ToLowerInvariant()
+    # Hash the actual bytes cl.exe will compile; never normalize a mismatch away.
+    $identityHeader = Get-Content -LiteralPath 'native_code/windows/include/window_fixture_identity.h' -Raw
+    $pins = [regex]::Matches($identityHeader, '(?m)^#define SCAPKIT_WINDOW_FIXTURE_SHA256 "([a-f0-9]{64})"\r?$')
+    if ($pins.Count -ne 1) { throw 'Expected exactly one Windows fixture source pin' }
+    $fixturePin = $pins[0].Groups[1].Value
+    if ($fixtureHash -cne $fixturePin) {
+        throw "Windows fixture source/pin mismatch: source=$fixtureHash native_pin=$fixturePin"
+    }
+    Write-Output "Verified Windows fixture source/pin sha256 $fixtureHash"
     # A generated forced-include header avoids native-argument quote differences
     # between Windows PowerShell 5.1 and PowerShell 7.
     Set-Content -LiteralPath 'build/window-fixtures/fixture-build.h' -Encoding ascii `

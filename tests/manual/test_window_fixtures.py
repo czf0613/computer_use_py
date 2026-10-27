@@ -9,13 +9,45 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 import uuid
+from pathlib import Path
+
+
+def verified_windows_source_hash(source: Path) -> str:
+    """Require compiled source bytes to match the native recognition pin."""
+    root = Path(__file__).resolve().parents[2]
+    header = (root / "native_code/windows/include/window_fixture_identity.h").read_text(encoding="utf-8")
+    pins = re.findall(r'^#define SCAPKIT_WINDOW_FIXTURE_SHA256 "([a-f0-9]{64})"$', header, re.MULTILINE)
+    if len(pins) != 1:
+        raise ValueError("Expected exactly one Windows fixture source pin")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    if digest != pins[0]:
+        raise ValueError(f"Windows fixture source/pin mismatch: source={digest} native_pin={pins[0]}")
+    return digest
+
+
+class WindowsFixtureSourceTests(unittest.TestCase):
+    """Byte identity only; these tests do not execute a Windows binary."""
+
+    def test_source_bytes_match_native_pin(self):
+        digest = verified_windows_source_hash(Path(__file__).with_name("window_fixture_windows.cpp"))
+        print(f"Verified Windows fixture source/pin sha256 {digest}", flush=True)
+
+    def test_crlf_checkout_is_rejected(self):
+        source = Path(__file__).with_name("window_fixture_windows.cpp").read_bytes()
+        self.assertNotIn(b"\r", source, "Windows fixture checkout must retain LF bytes")
+        self.assertIn(b"\n", source)
+        with tempfile.TemporaryDirectory(prefix="scapkit-fixture-crlf-") as directory:
+            altered = Path(directory) / "window_fixture_windows.cpp"
+            altered.write_bytes(source.replace(b"\n", b"\r\n"))
+            with self.assertRaisesRegex(ValueError, "Windows fixture source/pin mismatch"):
+                verified_windows_source_hash(altered)
 
 
 def windows_environment() -> dict[str, str]:
@@ -140,7 +172,9 @@ class FixtureProtocolTests(unittest.TestCase):
         self.assertEqual(state["pid"], pid)
         self.assertEqual(state["schema_version"], 1)
         self.assertEqual(state["fixture_version"], "window-fixture-v1")
-        self.assertEqual(state["build_sha256"], hashlib.sha256(self.source.read_bytes()).hexdigest())
+        source_hash = (verified_windows_source_hash(self.source) if sys.platform == "win32"
+                       else hashlib.sha256(self.source.read_bytes()).hexdigest())
+        self.assertEqual(state["build_sha256"], source_hash)
         self.assertEqual(state["execution"], "offline_probe")
         self.assertEqual(state["desktop_validation"], "not_run")
         self.assertFalse(state["running"])

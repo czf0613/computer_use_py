@@ -1,0 +1,2 @@
+# This source's exact bytes are pinned by the Windows native fixture adapter.
+tests/manual/window_fixture_windows.cpp text eol=lf

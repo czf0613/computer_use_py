@@ -1,10 +1,10 @@
 # 窗口后台控制集成验证 — 2026-10-27
 
-状态：**macOS 三项 review 修复与 Windows 排队超时/fixture 修复已整合。
-Mac 本地针对性检查、自有 fixture 和双 ABI production 通过；等待新集成 Windows CI
-及最终公共接口/MCP/Windows 独立 review**。Windows 上轮六项 CI 均失败，未算全绿。
-上层已报告 macOS 固定修复 SHA 的独立复核关闭原三项问题；本文件的本地检查仍是
-实现自检，不能替代最终公共接口/MCP/Windows 独立验收或任意应用后台控制验收。
+状态：**上层已完成原生/公共接口/MCP 的定向复核及集成一致性检查。
+最新 Windows CI 为 5 项成功、1 项 MCP 测试失败；另发现原 fixture 离线协议漏检的
+CRLF/source pin 不一致。当前仅修复 fixture checkout/构建检查和测试同步，等待新 CI**。
+Mac 已通过的相关检查、自有 fixture 和双 ABI production 不重复运行。本文件引用的
+独立结果来自上层，本地检查仍是实现自检，均不等于任意应用后台控制验收。
 唯一交付分支是 `refs/heads/codex/provider-window-control-20261027`，仓库为
 `https://github.com/czf0613/computer_use_py.git`。没有默认分支写入、tag、release、
 发布 workflow、强制推送或其他 Agent 工作区操作。
@@ -25,7 +25,7 @@ Mac 本地针对性检查、自有 fixture 和双 ABI production 通过；等待
 | 3.10 自有 fixture，修复后运行一次 | exit 0；BGRA/JPEG 均 1080×804，mapping verified；AXValue/Press、兄弟窗口不变、错误根拒绝、关闭失效通过；一次有限只读刷新，没有重试动作，子进程已 reap |
 | macOS CI runner 接入 | 新增 `test_window_macos_review.py`，并要求 testing AX transport hook 存在，缺失时直接失败；14 项矩阵保留，本轮未 dispatch |
 | Windows 新增测试的 3.10/3.14t 语法及公共截图签名 | 两者通过；3.14t GIL 保持关闭，没有运行 Windows native |
-| Windows fixture source/pin | SHA-256 `3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251` 一致；MSVC/Windows runtime 待 CI |
+| Windows fixture source/pin（上一阶段本机 LF checkout） | SHA-256 `3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251` 一致；当时未覆盖 Windows CRLF checkout，不能用此检查证明 Windows 构建身份一致 |
 | 改动 runner/Windows 测试 Ruff 与 Git diff 检查 | exit 0；保留 timeout child 的 `check=False` 和正常/hung/queued 三类覆盖 |
 
 Windows 修复合入后再次确认 macOS native、setup.py、公共 API/MCP 实现、自有 Mac
@@ -41,7 +41,61 @@ set_value accepted/effect verified；invoke accepted/effect unknown，同时 fix
 双 ABI 各 20 项新增、7 项生命周期及 11 项独立生产路径探针通过，3.14t GIL off，
 双 ABI production 无 test hooks，原三项关闭、无新增确定问题。这是**上层转交的
 独立结果**，不是本集成 Agent 自称完成独立 review。最终公共接口/MCP/Windows
-review 和完整集成 Windows CI 尚待完成；Windows 桌面和连续人类输入等限制见末节。
+定向 review 与集成一致性检查现已由上层转交完成结果：Windows `e346d22` 的原 P1
+关闭、无新阻塞问题，queued screenshot/write/close 不迟到执行、正常后续可用，hung
+capture/cleanup/write 仍隔离。上层确认 `c5a2d77` 的 Mac native 等于 `6e7db27`、
+Windows native 等于 `e346d22`、src 公共/MCP 等于已审 `74584d4`。这些范围之外不外推。
+本轮 native/src 不变，只改下述构建/测试/文档；新 CI 及 Windows 桌面等限制仍保留。
+
+## 最新 Windows CI、fixture 字节身份与 MCP 测试同步
+
+[CI 40486344125](https://github.com/czf0613/computer_use_py/actions/runs/40486344125)
+测试 `c5a2d771a4d4b42916a0a5eb5c0bb93acaf2f1bd`，本轮读取完整 job 状态，最终为
+**5 success / 1 failure**。六项 native build、离线测试步骤及 fixture compile/protocol
+步骤均成功；普通 x64 3.14 MCP 成功，3.10 MCP 失败，其 production wheel 未运行；
+另五项 production wheel 成功。原本不支持 MCP 的 free-threaded/ARM64 条目仍按
+原矩阵不安装该 extra，没有把失败改成 skipped。
+
+x64 3.14t [job 122128969354](https://github.com/czf0613/computer_use_py/actions/runs/40486344125/job/122128969354)
+完整成功，日志有 `190 passed` 和 `gil_enabled_after_tests=False`，但 fixture 输出的
+source hash 为 `0d26e72ea171b91e474be71b1f1cee7f273a059d4778f8ea499c72f5d2bedc77`，
+与 native pin `3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251` 不同。
+Git blob 的 LF 字节换成 CRLF 后正好得到前一个 hash。原协议只比本 worktree 源码和
+其生成的 build_sha256，漏掉后端固定 pin，因此步骤成功不能证明实际 fixture 可识别。
+
+修正只新增 `.gitattributes` 的精确 fixture 路径 `text eol=lf`（原仓库没有该文件），
+保留实际源码和 native pin；PowerShell 在编译及生成资源前对实际源码字节 hash 与
+header 的唯一 pin 做严格比较，错误就终止，成功主动输出
+`Verified Windows fixture source/pin sha256 ...`。没有默默归一化源码、改 pin 为 CRLF
+或同时接受多个 hash。offline protocol 现在同样核验源码、pin 和二进制报告的 hash，
+增加源字节匹配与 CRLF 拒绝两项回归，现有协议行为断言全部保留。
+
+本机用临时 Git index/空 checkout，设置 `core.autocrlf=true core.eol=crlf`，先从
+`c5a2d77` 复现 `0d26e72...`，再加入唯一 attributes 规则后实际 checkout 为 LF，
+hash 精确等于 `3bc6c190...`；`git check-attr` 返回 `text: set`、`eol: lf`。
+新 source identity 测试 `2 passed in 0.01s`；首次 Ruff 发现 import 排序，修正后
+`All checks passed!`。这些是本机字节/规则验证，本机无 PowerShell/MSVC，不能冒充
+新 Windows build guard 或真实窗口识别已执行。
+
+x64 3.10 [job 122128969360](https://github.com/czf0613/computer_use_py/actions/runs/40486344125/job/122128969360)
+的 MCP 原始结果是 `1 failed, 92 passed, 1 skipped, 1 warning in 13.17s`，exit 1，
+失败断言位于 `test_idle_reaper_runs_without_another_call` 的 session 回收检查。
+本轮只在 fake native close 计数已增加、返回前加受控门闩：此时 Python
+`cleanup_complete=False`，entry 正确保留。沿用旧等待条件稳定复现
+`1 failed in 0.47s`（exit 1），证实 close_count 不代表 reaper 已完成回收，未发现
+需要修改生产行为的问题。
+
+测试仍使用原 200×10ms 上限，只在 close_count 恰为 1 **且** registry sessions 已清空
+时结束等待；不增加盲 sleep，不发额外 API 调用或手动 expire 来驱动 reaper。
+门闩保留以持续覆盖该时序，原 close_count==1/无 session 断言保留，并确认
+cleanup_complete。闲置回收、取消关闭及所有 incomplete cleanup 配额相关用例：
+3.10 为 `14 passed, 45 deselected, 1 warning in 0.75s`，3.14t 为
+`14 passed, 45 deselected, 1 warning in 0.67s`；后者同进程导入/pytest 前后 GIL 关闭，
+两者 checkout 导入和空生产信任表检查通过。未重跑 Mac 桌面或原生整套矩阵。
+
+本轮将两项修正一起发布后只 dispatch 一次新的 `windows.yml`，准确 run ID/URL/head
+SHA 在 Provider 回执中；新 Windows 结果返回前保持 needs_input/published。历史成功
+与失败分别保留，CI 绿色也不能替代 Windows UIA/WGC 桌面或后台非干扰验收。
 
 ## 固定输入与合并
 
@@ -69,9 +123,9 @@ Windows 候选 [CI 40479320493](https://github.com/czf0613/computer_use_py/actio
 build 和 189 tests 已通过，MCP/production 后续未运行。本轮读取失败日志的实际原文：
 `UIAutomationCore.h(49): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int`；
 六项均记录 `Process completed with exit code 1.`。这不是矩阵全通过，不能以 Mac MCP
-结果代替未运行的 Windows MCP。现在已合入准确 Windows 修复 `e346d22`，发布本候选
-后只 dispatch 一次完整集成 `windows.yml`；run ID/URL/head SHA 记录在 Provider 回执，
-结果尚未返回时为 needs_input/published，不触发 macOS/release，不长时间 watch。
+结果代替未运行的 Windows MCP。后续准确 Windows 修复 `e346d22` 已合入，上一阶段
+发布并 dispatch 的结果为上述 `40486344125`。本轮仅为两个新发现修正再 dispatch
+一次完整集成 Windows CI，不触发 macOS/release，不长时间 watch。
 
 ## Python / MCP 入口与边界
 
@@ -265,7 +319,7 @@ Invoke 仍可用；原正常 no-frame 和两种 hung 覆盖均保留。Windows A
 production Actor probe 通过仅是其 handoff 证据，集成后的 Windows extension 执行待 CI。
 fixture 在 UIAutomation.h 前显式加入 ole2.h，并同步 source pin；setup.py 的 native
 build hash 包含该 pin header。生产信任表没有更新，没有新的 unsafe/全局输入路径。
-上层已安排 Windows reviewer 定向复核 `e346d22`，本文件不预先记为 review passed。
+上层已转交 Windows reviewer 对 `e346d22` 的定向复核完成结果，范围见本文开头。
 
 上一阶段先离线复现新 child harness 的 `screenshot(timeout=0.1)` 与冻结公共签名不符，
 真实报 `TypeError: got an unexpected keyword argument 'timeout'`。本集成修正为
@@ -284,8 +338,8 @@ Python 3.10/3.14t 的 AST/实际 `inspect.signature.bind` 检查通过，3.14t G
 之后发布 `6e7db27`。当前已合入：AXChildren IPC/无效对象/不合法数组上报 stale，合法
 空叶/显式截断仍允许；返回 nodes、保留对象及 fingerprint 来自同一次观察，再做
 一次校验，发现变化就拒绝，不自动重试。新检查与上层独立复核见本文开头；旧通过
-不覆盖这些历史失败，修复后的通过也不改写旧失败。最终公共接口/MCP/Windows 独立
-review 尚未完成。
+不覆盖这些历史失败，修复后的通过也不改写旧失败。上层已转交公共接口/MCP/Windows
+定向 review 和集成一致性结果；新增 EOL/测试同步修正的 Windows 执行结果仍待 CI。
 
 更早 BSTR 编译失败及其修正保留在 [Windows handoff](window-windows-handoff.md)，
 不能用旧失败覆盖未来确实通过的最终结果，也不能提前宣称通过。

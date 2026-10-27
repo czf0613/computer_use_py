@@ -645,19 +645,37 @@ async def test_total_and_client_limits_reserve_pending_opens(harness, backend):
 
 
 @pytest.mark.asyncio
-async def test_idle_reaper_runs_without_another_call(harness, backend):
+async def test_idle_reaper_runs_without_another_call(harness, backend, monkeypatch):
     now = [harness.registry.clock()]
     harness.registry.clock = lambda: now[0]
     harness.registry.SWEEP_SECONDS = 0.01
+    close_return = Gate()
+    original_close = backend._window_close
+
+    def delayed_close(handle):
+        result = original_close(handle)
+        # close_count is visible before the worker returns to Python cleanup.
+        close_return()
+        return result
+
+    monkeypatch.setattr(backend, "_window_close", delayed_close)
     async with Client(harness.server, mode="legacy") as client:
-        await opened(client)
+        token = await opened(client)
         now[0] += 301
+        try:
+            await close_return.wait()
+            assert backend.close_count == 1
+            entry = next(c.sessions[token] for c in harness.registry.clients if token in c.sessions)
+            assert not entry.session.cleanup_complete
+        finally:
+            close_return.release.set()
         for _ in range(200):
-            if backend.close_count:
+            if backend.close_count == 1 and all(not c.sessions for c in harness.registry.clients):
                 break
             await asyncio.sleep(0.01)
         assert backend.close_count == 1
         assert all(not c.sessions for c in harness.registry.clients)
+        assert entry.session.cleanup_complete
 
 
 @pytest.mark.asyncio
