@@ -3,9 +3,13 @@
 Synthetic resources enter the actual native registry, dispatch gate, snapshot,
 frame and capsule paths. The test-only provider never connects to a desktop.
 """
+import asyncio
 import concurrent.futures
 import gc
+import subprocess
 import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -223,6 +227,45 @@ def test_frame_failures_do_not_substitute_cached_pixels(native, event, code):
         failure(native._window_screenshot(handle, "bgra", 80, 5), code)
     finally:
         unwrap(native._window_close(handle))
+
+
+def test_capture_deadline_cleans_up_and_keeps_actor_available(native):
+    handle = opened(native, "capture")
+    try:
+        initial = unwrap(native._test_window("capture_probe_state"))["subject"]
+        unwrap(native._test_window("no_frame_deadline", handle))
+        for index in range(3):
+            started = time.monotonic()
+            failure(native._window_screenshot(handle, "bgra", 80, 0.1), "capture_timeout")
+            assert 0.1 <= time.monotonic() - started < 3
+            state = unwrap(native._test_window("capture_probe_state"))["subject"]
+            assert state["live"] == "0" and state["blocked"] == "0"
+            assert int(state["completed"]) == int(initial["completed"]) + index + 1
+            assert state["expired"] == "0" and state["wrong_thread_release"] == "0"
+        # This is the same production actor after three real deadline waits and
+        # resource destruction, not an immediate synthetic error or a new actor.
+        unwrap(native._test_window("normal_frame", handle))
+        assert unwrap(native._window_screenshot(handle, "bgra", 80, 1))["image_width"] == 64
+    finally:
+        unwrap(native._window_close(handle))
+
+
+@pytest.mark.parametrize("mode", ["hung_native", "hung_cleanup"])
+def test_hung_capture_quarantines_production_actor(native, mode):
+    # Each process has its one real Actor. Isolation is necessary because its
+    # quarantine must be permanent; no testing reset or replacement is allowed.
+    from scapkit_computer_use.process import _shell_environment
+
+    environment = asyncio.run(_shell_environment())
+    environment = {key: value for key, value in environment.items()
+                   if key.upper() not in {"PYTHONHOME", "PYTHONPATH"}}
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-I", str(root / "tests/windows_window_timeout_checks.py"), mode],
+        cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"{mode}: quarantine retained; cleanup_complete=False; late resources released" in result.stdout
 
 
 def test_concurrent_close_and_retained_element(native, session):
