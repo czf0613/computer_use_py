@@ -262,7 +262,7 @@ def test_hung_capture_quarantines_production_actor(native, mode):
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [sys.executable, "-I", str(root / "tests/windows_window_timeout_checks.py"), mode],
-        cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+        cwd=root, env=environment, capture_output=True, text=True, timeout=30, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"{mode}: quarantine retained; cleanup_complete=False; late resources released" in result.stdout

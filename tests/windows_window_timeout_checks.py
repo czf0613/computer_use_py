@@ -27,7 +27,7 @@ async def check(native, mode):
     try:
         started = time.monotonic()
         try:
-            await session.screenshot(format="bgra", timeout=0.1)
+            await session.screenshot(format="bgra", timeout_seconds=0.1)
         except WindowError as error:
             assert error.code == "backend_busy", error
             assert error.native_domain == "actor.cleanup_unknown", error.native_domain
