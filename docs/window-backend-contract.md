@@ -279,8 +279,12 @@ timeout. A successful screenshot requires completed teardown. A platform start/
 stop completion can arrive after the caller's finite budget: retain the bounded
 native capture owner, refuse replacement acquisition, and report incomplete
 cleanup (`backend_busy`) until completion. Do not free a live callback or label
-that timeout as successful cleanup. The implemented macOS backend still uses
-one short-lived stream per screenshot, not a persistent observation stream.
+that timeout as successful cleanup. On macOS, a returned stop callback alone
+does not establish cleanup: both stop and output removal must succeed. Failure
+retains the pure-native owner and the one capture gate for the process lifetime;
+close remains incomplete and replacement captures are refused, without retries.
+The implemented macOS backend still uses one short-lived stream per screenshot,
+not a persistent observation stream.
 No display cropping, hidden fallback, cursor/audio capture, automatic popup
 inclusion, restore/activation, idle/blank/old cached frame substitution. Recheck
 identity and geometry before delivery; movement/DPI/resize races fail with
@@ -382,6 +386,10 @@ rules. Native method-table docstrings remain NULL.
 
 All native control waits have finite budgets (5 seconds for open/attach/
 enumerate/inspect/close; screenshot/action use their supplied timeout). An
+expired queued Windows request is atomically canceled before admission and
+reported as not_dispatched; it does not quarantine a different healthy running
+request. Only an admitted operation that exceeds its completion budget can
+quarantine the actor. An
 unresponsive provider may outlive that budget: quarantine its actor, report
 `backend_busy`/`outcome_unknown`, and retain only native state until late return.
 Queues are bounded (maximum 64); at most one write is in flight per actor.

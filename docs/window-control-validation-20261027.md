@@ -1,10 +1,47 @@
 # 窗口后台控制集成验证 — 2026-10-27
 
-状态：**已整合 Windows 修正候选，等待集成 Windows CI 和 macOS review 修复**。
-本文件记录实现自检，不是独立 R 验收，也不是任意应用后台控制验收。
+状态：**macOS 三项 review 修复与 Windows 排队超时/fixture 修复已整合。
+Mac 本地针对性检查、自有 fixture 和双 ABI production 通过；等待新集成 Windows CI
+及最终公共接口/MCP/Windows 独立 review**。Windows 上轮六项 CI 均失败，未算全绿。
+上层已报告 macOS 固定修复 SHA 的独立复核关闭原三项问题；本文件的本地检查仍是
+实现自检，不能替代最终公共接口/MCP/Windows 独立验收或任意应用后台控制验收。
 唯一交付分支是 `refs/heads/codex/provider-window-control-20261027`，仓库为
 `https://github.com/czf0613/computer_use_py.git`。没有默认分支写入、tag、release、
 发布 workflow、强制推送或其他 Agent 工作区操作。
+
+## 当前候选检查及剩余限制
+
+本轮按固定 SHA `6e7db274028f83df27c7a613af0092a6e052edc4` 使用
+`git fetch --no-tags` 和普通 merge，未改变原 input_sync `9336925`。
+本 checkout 的原生实现与该发布提交一致；保留集成层 MCP incomplete cleanup
+配额修复，以及 manual harness 的有限只读刷新和 nested finally。
+
+| 当前检查 | 实际结果与范围 |
+| --- | --- |
+| Python 3.10 testing 强制构建及 `--review-only` | `168 passed in 1.05s`；20 项新增 transport 注入、73 项原生 window 和相关公共 API/身份/坐标回归 |
+| Python 3.14t 同一检查 | `168 passed in 1.09s`；同进程导入及 pytest 后 GIL 关闭，扩展来自本 checkout |
+| macOS 13.0 testing / 15.0 production preprocessing | strict warnings/availability 和 Clang static analysis 均 exit 0；不是旧系统运行验收 |
+| 3.10 / 3.14t production 分别强制构建 | 两者 exit 0：ABI 1、空生产 profile 信任表、无 `_test_*`；3.14t 导入前后 GIL 关闭 |
+| 3.10 自有 fixture，修复后运行一次 | exit 0；BGRA/JPEG 均 1080×804，mapping verified；AXValue/Press、兄弟窗口不变、错误根拒绝、关闭失效通过；一次有限只读刷新，没有重试动作，子进程已 reap |
+| macOS CI runner 接入 | 新增 `test_window_macos_review.py`，并要求 testing AX transport hook 存在，缺失时直接失败；14 项矩阵保留，本轮未 dispatch |
+| Windows 新增测试的 3.10/3.14t 语法及公共截图签名 | 两者通过；3.14t GIL 保持关闭，没有运行 Windows native |
+| Windows fixture source/pin | SHA-256 `3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251` 一致；MSVC/Windows runtime 待 CI |
+| 改动 runner/Windows 测试 Ruff 与 Git diff 检查 | exit 0；保留 timeout child 的 `check=False` 和正常/hung/queued 三类覆盖 |
+
+Windows 修复合入后再次确认 macOS native、setup.py、公共 API/MCP 实现、自有 Mac
+fixture 和 manual harness 与上述检查时完全一致，因此未重复 Mac 检查。两平台均
+保留各自固定发布提交的原生实现，没有用本机 portable 检查冒充 Windows 原生验收。
+
+fixture 只预检已有权限，未申请权限、操作用户应用、读取剪贴板或设置焦点。
+set_value accepted/effect verified；invoke accepted/effect unknown，同时 fixture 自身
+状态确认文本及计数生效。`human_continuous_input=not_run`、`profile_validation=not_run`。
+生产 profile 信任表仍为空，生产写操作继续 `background_not_verified`。
+
+上层报告原 macOS reviewer 在固定 `6e7db27` 的隔离 inspection worktree 复核：
+双 ABI 各 20 项新增、7 项生命周期及 11 项独立生产路径探针通过，3.14t GIL off，
+双 ABI production 无 test hooks，原三项关闭、无新增确定问题。这是**上层转交的
+独立结果**，不是本集成 Agent 自称完成独立 review。最终公共接口/MCP/Windows
+review 和完整集成 Windows CI 尚待完成；Windows 桌面和连续人类输入等限制见末节。
 
 ## 固定输入与合并
 
@@ -16,15 +53,25 @@
 | Provider MCP 输入 | `933692576cc18ea84202ff9d97dc610c5a2b3a50`，Provider input_sync 已固定，本工作区起始 HEAD 与之相同；普通 merge 确认 already up to date，没有重抓移动 tip |
 | Windows 初始候选 | 按 SHA fetch 并普通 merge `a5e2c6a35fbaf4db9615fda19d8fcdf35a7c7e81`，含 fixture `f03d182beaf14a4d1f40c9d083246eec7ccbadea`；保留阶段祖先 |
 | Windows 后续修正 | 按 SHA fetch 并普通 merge `73d9bf53724f98831b06b7406274e55e41f922ef`，再普通 merge `50f09b62be977dca79fd27010f774b1a8d22194b`；统一截图 deadline、修正 fixture header 路径及测试参数 |
-| macOS 当前候选 | 按 SHA fetch 并普通 merge `b6a020645fb980db95e4c2bbd6ded72c417f7070`，自动合并 setup.py，保留 Windows 源/库及 macOS Security framework；review 新发现的三项问题等待原 Agent 修复 |
+| Windows 排队与 fixture 修复 | 按 SHA fetch --no-tags 并普通 merge `e346d22aee18f14c9efdd956c9dd574b6951d5c2`；保留集成测试 `check=False`，无冲突覆盖 |
+| macOS 初始候选 | 按 SHA fetch 并普通 merge `b6a020645fb980db95e4c2bbd6ded72c417f7070`，自动合并 setup.py，保留 Windows 源/库及 macOS Security framework |
+| macOS review 修复 | 按 SHA fetch --no-tags 并普通 merge `6e7db274028f83df27c7a613af0092a6e052edc4`；保留旧提交祖先及失败历史 |
 
 Windows 候选 [CI 40479320493](https://github.com/czf0613/computer_use_py/actions/runs/40479320493)
 由上层监测；Windows handoff 记录六项库构建及各 186 项测试通过，但 fixture 编译出现
 `C1083: build/window-fixtures/fixture-build.h` 找不到，**不是全绿**，后续 MCP/production
 步骤未运行。修正候选的 [CI 40481667396](https://github.com/czf0613/computer_use_py/actions/runs/40481667396)
-测试 `73d9bf5`，本轮查询为 `in_progress`，而且它不含 `50f09b6` 的参数修正。
-本集成候选发布后单独 dispatch `windows.yml`；准确 run URL/测试 SHA 由 Provider
-回执记录，取得真实结果前不算 Windows 原生或 Windows MCP 通过。
+测试 `73d9bf5`，上一阶段查询为 `in_progress`，而且它不含 `50f09b6` 的参数修正。
+
+本集成 [CI 40482766511](https://github.com/czf0613/computer_use_py/actions/runs/40482766511)
+准确测试 `74584d4e6f247a0388ebd89da31a675a92a3e19b`，本轮 `gh run view` 确认
+**六项全部 failure**，失败步骤均为 fixture compile/protocol。上层核验各项 native
+build 和 189 tests 已通过，MCP/production 后续未运行。本轮读取失败日志的实际原文：
+`UIAutomationCore.h(49): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int`；
+六项均记录 `Process completed with exit code 1.`。这不是矩阵全通过，不能以 Mac MCP
+结果代替未运行的 Windows MCP。现在已合入准确 Windows 修复 `e346d22`，发布本候选
+后只 dispatch 一次完整集成 `windows.yml`；run ID/URL/head SHA 记录在 Provider 回执，
+结果尚未返回时为 needs_input/published，不触发 macOS/release，不长时间 watch。
 
 ## Python / MCP 入口与边界
 
@@ -53,9 +100,11 @@ AX/UIA 写操作只有整个值替换及精确控件 invoke；坐标点击、键
 
 已合入的 macOS 后端确实是**每次截图创建短寿命 SCStream**，没有持续观察流。
 完整帧的 display timestamp 必须晚于本次 capture 开始；旧/不完整帧不替代新帧。
-通常路径等待 stop 并移除 output，迟到 start/stop 使用独立 retained owner；超时仍
-未完成时有界 capture gate 继续占用。**但独立 review 已报告 stop/remove 均失败时
-错误释放 gate 并把 close 报为成功，尚待修复，不能据此宣称所有失败路径清理正确。**
+成功路径等待 stop 并移除 output，迟到 start/stop 使用独立 retained owner；超时仍
+未完成时有界 capture gate 继续占用。`6e7db27` 修复了旧版把 stop/remove 失败也
+报为完成的问题：只有两者都成功才释放 owner/gate，否则 close 持续 incomplete。
+失败时保留至进程退出、最多一个 stream 的纯 native owner；不重试 teardown 或
+创建替代 stream。离线 transport 证明状态/资源边界，没有证明真实 SCK 泄漏或零泄漏。
 native 离线测试覆盖实际 CMSampleBuffer 接收器、旧帧拒绝、两种 late-start 时序、
 会话 close 前后清理及像素所有权。contract 已澄清“成功返回已关闭”和“超时后保留
 待清理 owner”的区别，没有改 ABI，也没有把 GC 当清理确认。
@@ -90,7 +139,7 @@ capsule 析构和 GC 均不证明 AX/UIA provider 已返回。原生 actor 必�
 未向 MCP 交出 session 的路径仍由公共 Python API 排空并关闭迟到 handle，失败通过
 异常链暴露，MCP 无法凭空生成 native cleanup 确认。退出/强杀亦不作优雅清理保证。
 
-## 本地实际检查
+## 历史阶段的本地实际检查
 
 全部 Python 命令使用局部 `env -u PYTHONHOME -u PYTHONPATH`、uv/setuptools 和
 `python -I`；没有修改全局环境。两个环境位于本 Provider 工作区的 `.venv` 与
@@ -139,7 +188,7 @@ env -u PYTHONHOME -u PYTHONPATH UV_PROJECT_ENVIRONMENT=.cache/window-integration
 free-threaded GC；不是跳过新的 window 测试，也没有弱化 GIL 断言。完整回归使用
 `tests/macos_window_checks.py`；MCP 仍使用独立 runner。仅新变更/真实失败触发重跑。
 
-## 本集成的自有 macOS fixture
+## 历史阶段的自有 macOS fixture
 
 由本 checkout 重建 fixture；source hash
 `826b5520278953797bea9167ed6ab0a5db0293fb3f81762d166c1b16b880d30c`、binary hash
@@ -193,7 +242,8 @@ env -u PYTHONHOME -u PYTHONPATH PYTHON_VARIANT=3.10 uv run --no-sync --python 3.
 
 macOS CI 保留 15/26 arm64 × 3.10–3.14/3.13t/3.14t 共 14 项矩阵，新增
 `tests/macos_window_checks.py` 接入公共/原生 window 及原有离线 capture、参数校验、
-async safety、recording、modifier、release artifact、process 测试。uv/setuptools
+async safety、recording、modifier、release artifact、process 测试，并纳入本轮新增的
+macOS review transport 测试。uv/setuptools
 构建本 checkout；production 强制重建后断言无 `_test_*`。MCP 三文件也在单解释器
 内验证 GIL；继续排除不支持依赖的 3.13t MCP extra。
 
@@ -207,22 +257,35 @@ deadline；额外一秒仅用于完成/清理 grace，不是延长等帧预算�
 fixture `/FI` 参数现为生成 header 的绝对路径。本机没有 Windows 编译器/运行环境，
 这些原生行为仍由集成 CI 验证，不从本地语法检查推断通过。
 
-本轮先离线复现新 child harness 的 `screenshot(timeout=0.1)` 与冻结公共签名不符，
+`e346d22` 进一步以 queued phase 原子 `0 -> 3` 取消排队中已超时的请求：只向该调用
+报告 `actor.queue_timeout/not_dispatched`，不会隔离另一 session 仍在预算内的 healthy
+actor。只有已经 running 且超出完成预算的请求沿用永久 quarantine。新增 synthetic
+场景让 50ms screenshot/Invoke 排在健康长截图后，断言旧请求不迟到执行，之后截图和
+Invoke 仍可用；原正常 no-frame 和两种 hung 覆盖均保留。Windows Agent 的 portable
+production Actor probe 通过仅是其 handoff 证据，集成后的 Windows extension 执行待 CI。
+fixture 在 UIAutomation.h 前显式加入 ole2.h，并同步 source pin；setup.py 的 native
+build hash 包含该 pin header。生产信任表没有更新，没有新的 unsafe/全局输入路径。
+上层已安排 Windows reviewer 定向复核 `e346d22`，本文件不预先记为 review passed。
+
+上一阶段先离线复现新 child harness 的 `screenshot(timeout=0.1)` 与冻结公共签名不符，
 真实报 `TypeError: got an unexpected keyword argument 'timeout'`。本集成修正为
 `timeout_seconds`，随后普通合并上层提供的相同修正 `50f09b6`，保留双方祖先。
 Python 3.10/3.14t 的 AST/实际 `inspect.signature.bind` 检查通过，3.14t GIL 保持关闭；
 没有调用 native capture。针对新文件的 Ruff 首次报告 subprocess.run 缺少显式
 `check`，现补 `check=False`，保留对子进程 returncode/stdout/stderr 的原断言。
-重新检查通过。六项 Windows 矩阵及新增 MCP runner 保持，macOS native/公共 API/MCP
-实现与已测 `5cc64663bd0cfba060c0b2894860443986d33421` 完全一致，未重复未变化的
-macOS 桌面/双 ABI 整套检查，也未 dispatch macOS 或 release workflow。
+重新检查通过。上一阶段 macOS native/公共 API/MCP 实现与已测 `5cc6466` 完全一致，
+故当时未重复 macOS 检查。本轮因 macOS native 确有新变更，只重建/验证相关路径和
+一次自有 fixture，没有扩展到无关全部平台矩阵；没有 dispatch macOS/release。
 
 上层的独立 macOS review 针对 `b6a0206` 离线复现了三项生产路径问题：
 `SWShot.stop` 在 stop/remove 均失败时仍完成并释放 gate；`AXChildren` count/values
 错误被 `read_tree` 当空树；`SWElements` 仅比较前后 fingerprint，未校验中间实际
-返回 nodes 内容。原 macOS Agent 正在修复，本集成未修改这三段；等待准确发布 SHA。
-上述已通过的本地检查保留为其实际覆盖范围内的结果，不能据此否定新失败或宣称
-独立验收完成。最终公共接口/MCP/Windows 的独立 review 同样未完成。
+返回 nodes 内容。原 macOS Agent 新增注入测试在修复前真实 **12 failed, 8 passed**，
+之后发布 `6e7db27`。当前已合入：AXChildren IPC/无效对象/不合法数组上报 stale，合法
+空叶/显式截断仍允许；返回 nodes、保留对象及 fingerprint 来自同一次观察，再做
+一次校验，发现变化就拒绝，不自动重试。新检查与上层独立复核见本文开头；旧通过
+不覆盖这些历史失败，修复后的通过也不改写旧失败。最终公共接口/MCP/Windows 独立
+review 尚未完成。
 
 更早 BSTR 编译失败及其修正保留在 [Windows handoff](window-windows-handoff.md)，
 不能用旧失败覆盖未来确实通过的最终结果，也不能提前宣称通过。

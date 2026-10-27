@@ -54,6 +54,7 @@ def main():
         print("production_test_hooks=absent")
         return 0
     assert hooks and hasattr(native, "_test_window"), "window testing build required"
+    assert hasattr(native, "_test_window_ax_transport"), "window review test hooks required"
     import pytest
 
     names = [
@@ -61,6 +62,7 @@ def main():
         "test_window_identity.py",
         "test_window_coordinates.py",
         "test_native_window_macos.py",
+        "test_window_macos_review.py",
         "test_native_capture.py",
         "test_capture_lifecycle.py",
         "test_native_arguments.py",
