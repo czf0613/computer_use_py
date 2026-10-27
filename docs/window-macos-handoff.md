@@ -9,6 +9,88 @@ Delivery is restricted to `refs/heads/codex/provider-window-macos-20261027`.
 Independent acceptance of the eventual commit belongs to the upstream reviewer;
 the implementation checks below are not an independent review.
 
+## Review recovery from b6a0206
+
+The independently reviewed commit was
+`b6a020645fb980db95e4c2bbd6ded72c417f7070`. Its successful compilation and tests
+missed three defects. The recovery preserves that history, the original input
+and the fixed fixture dependency; no input/branch refetch or worktree reset was
+performed. Steer `steer_2d493fb2732c4247a8ff31f68855ddb1` supplied the findings.
+No unpublished reviewer artifacts or integration worktree were accessed, and
+`tests/manual/verify_window_macos.py` is unchanged in this recovery.
+
+Before changing the production logic, new transport-injection tests reproduced
+the defects. The actual command was:
+
+```text
+/bin/zsh -lc 'env -u PYTHONHOME -u PYTHONPATH uv run --frozen --python 3.10 python -I tests/window_macos_checks.py --review-repro'
+```
+
+It exited **1** with the continuous output `12 failed, 8 passed in 0.55s`.
+The failures are retained as red-test evidence, not relabeled as passes:
+
+* Stop failure, output-removal failure and both failures reported successful
+  close/finished state and released the capture gate.
+* AXChildren count/values failures and invalid-object errors produced a valid
+  root-only snapshot despite a missing child.
+* The middle traversal could change geometry, retained object, identifier,
+  enabled/editable state or actions, yet the returned snapshot was accepted.
+  The geometry case reproduced returned x=80 with fingerprint x=10.
+
+The stop transport now independently tracks running-source and attached-output
+effects, including late start/stop completions. Tests execute the production
+`SWShot`, `SWCaptureCleanup` and `SWClose`; each failure case uses a disposable
+isolated Python child with an empty environment, without resetting the native
+gate. The AX transport supplies local typed AX proxies and overrides only IPC
+boundaries under `SCAPKIT_TESTING`. Targets are deliberately **not synthetic**:
+the real validation, `ax_children`, `node_info`, tree traversal, retained element
+objects and snapshot validation run. No desktop IPC occurs in these tests.
+
+Production corrections:
+
+* `stopCompleted` means the callback returned; `finished` requires both a
+  successful stop and successful output removal. Only the latter releases the
+  stream and gate. The flight has a pure-native self-owner until confirmed
+  cleanup, so dropping the capsule/session cannot abandon a running source or
+  attached output. On failure, close reports `backend_busy` and remains
+  incomplete on repeated calls. This is a bounded process-lifetime quarantine
+  of at most one stream, not a retry loop; a failed stop/removal intentionally
+  prevents further captures in that process. No actual SCK leak was demonstrated
+  or claimed by the offline transport test.
+* `AXChildren` with a zero count or an unsupported children attribute is a legal
+  leaf. Count/value IPC failures, invalid objects, malformed arrays or mismatched
+  counts propagate as `stale_element`; they cannot become an empty subtree.
+  Explicit max-depth/max-nodes truncation is still valid and tested.
+* The returned nodes and retained native objects now generate the fingerprint
+  from the same observation, including raw identifier and all exposed geometry/
+  action attributes. One subsequent traversal validates that observation.
+  There is no unvalidated middle traversal and no automatic retry of a race.
+  Stable trees pass; the previously observed A/B/A cases are rejected.
+
+After the fixes, `--review-only` passed **168 tests on Python 3.10.20 and 168 on
+Python 3.14.6t**, including 20 new transport cases, all 73 existing native window
+tests and the affected public window API/identity/coordinate tests. Import and
+tests shared one free-threaded process and ended with
+`gil_enabled_after_tests=False`; the isolated stop-probe children assert the
+same GIL condition. Target 13.0 and 15.0 strict warnings/availability and Clang
+static analysis passed in both testing and production preprocessing modes.
+Separate forced production builds and isolated import checks passed on both
+Python ABIs: `production_test_hooks=absent; WINDOW_BACKEND_ABI=1`. The 3.14t
+production import also asserted the GIL remained disabled. Both interpreters
+and loaded extensions were verified to belong to this worktree.
+
+The successful targeted command is `tests/window_macos_checks.py --review-only`
+under the same sanitized uv/Python invocation as the red-test command above;
+use the separate 3.14t environment and add `--free-threaded` for that ABI.
+`--production --target 13.0` (or `15.0`) runs compiler checks without test hooks;
+adding `--analyze` runs static analysis in that production preprocessing mode.
+
+The earlier full legacy suite and fixture desktop evidence below refer to the
+original implementation phase. They are not claimed as rerun during this
+recovery. No desktop test or continuous human-input acceptance was run for this
+fix. Profile trust, public ABI/schema, Windows/MCP and the fixture are unchanged.
+Upstream independent review must inspect the newly published SHA.
+
 ## Implemented boundary
 
 `WINDOW_BACKEND_ABI=1` registers all seven real entries: enumerate, open, close,

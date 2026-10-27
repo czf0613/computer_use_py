@@ -37,6 +37,7 @@ static PyMethodDef ScapkitMethods[] = {
     {"_test_window_candidate_action", scapkit_test_window_candidate_action, METH_VARARGS, NULL},
     {"_test_window_mapping", scapkit_test_window_mapping, METH_VARARGS, NULL},
     {"_test_window_frame", scapkit_test_window_frame, METH_VARARGS, NULL},
+    {"_test_window_ax_transport", scapkit_test_window_ax_transport, METH_VARARGS, NULL},
     {"_test_recording", scapkit_test_recording, METH_VARARGS, NULL},
     {"_test_recording_tick", scapkit_test_recording_tick, METH_VARARGS, NULL},
     {"_test_stop_recording_at", scapkit_test_stop_recording_at, METH_VARARGS, NULL},

@@ -1,4 +1,17 @@
 // Included only by window.m in SCAPKIT_TESTING builds. No desktop access.
+PyObject *scapkit_test_window_ax_transport(PyObject *self, PyObject *args)
+{
+    (void)self;
+    @autoreleasepool {
+        PyObject *arg;
+        int depth, count;
+        if (!PyArg_ParseTuple(args, "Oii", &arg, &depth, &count)) { return NULL; }
+        NSString *mode = text_arg(arg, 32, NO);
+        if (!mode) { return NULL; }
+        if (depth < 0 || depth > 32 || count < 1 || count > 4096) { PyErr_SetString(PyExc_ValueError, "invalid tree limit"); return NULL; }
+        return run_python(5, NO, ^{ return SWTestAXTransport(mode, depth, count); });
+    }
+}
 static NSArray *synthetic_nodes(void)
 {
     NSDictionary *base = @{@"name": NSNull.null, @"enabled": @YES, @"editable": @NO, @"password": @NO,
