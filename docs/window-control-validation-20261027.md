@@ -1,19 +1,26 @@
 # 窗口后台控制集成验证 — 2026-10-27
 
-状态：**上层已完成原生/公共接口/MCP 的定向复核及集成一致性检查。
-最新 Windows CI 为 5 项成功、1 项 MCP 测试失败；另发现原 fixture 离线协议漏检的
-CRLF/source pin 不一致。当前仅修复 fixture checkout/构建检查和测试同步，等待新 CI**。
-Mac 已通过的相关检查、自有 fixture 和双 ABI production 不重复运行。本文件引用的
-独立结果来自上层，本地检查仍是实现自检，均不等于任意应用后台控制验收。
+状态：**集成实现、定向复核和所需 CI 已完成。最终
+[Windows CI 40488149692](https://github.com/czf0613/computer_use_py/actions/runs/40488149692)
+在 `f1e867e793a49940357f8cb2bc59900d4eb8571b` 上 completed/success，六项 job 全部成功**。
+每项 190 个原生离线测试、9 个 fixture 协议/源码身份测试及 production wheel 构建通过；
+两项普通 x64 MCP 各 93 passed、1 skipped。macOS 双 ABI 各 168 项相关回归、自有
+真实 fixture 和双 ABI production 已通过且代码未变，文档收尾未重复运行。
+
+**明确限制**：Windows 真实桌面 UIA/WGC、连续人类键鼠/剪贴板非干扰、跨 DPI
+仍为 not_run；生产 profile 信任表为空，生产写操作仍为 `background_not_verified`。
+Windows CI 是编译、离线测试及真实 MCP 协议配合 fake 设备的验证，不是 Windows
+桌面业务验收，也不等于任意应用后台控制验收。本文件引用的独立结果来自上层，
+本地检查仍是实现自检。
 唯一交付分支是 `refs/heads/codex/provider-window-control-20261027`，仓库为
 `https://github.com/czf0613/computer_use_py.git`。没有默认分支写入、tag、release、
 发布 workflow、强制推送或其他 Agent 工作区操作。
 
-## 当前候选检查及剩余限制
+## 当前验证结果及明确限制
 
-本轮按固定 SHA `6e7db274028f83df27c7a613af0092a6e052edc4` 使用
+此前按固定 SHA `6e7db274028f83df27c7a613af0092a6e052edc4` 使用
 `git fetch --no-tags` 和普通 merge，未改变原 input_sync `9336925`。
-本 checkout 的原生实现与该发布提交一致；保留集成层 MCP incomplete cleanup
+本 checkout 的 macOS 原生实现与该发布提交一致；保留集成层 MCP incomplete cleanup
 配额修复，以及 manual harness 的有限只读刷新和 nested finally。
 
 | 当前检查 | 实际结果与范围 |
@@ -45,9 +52,45 @@ set_value accepted/effect verified；invoke accepted/effect unknown，同时 fix
 关闭、无新阻塞问题，queued screenshot/write/close 不迟到执行、正常后续可用，hung
 capture/cleanup/write 仍隔离。上层确认 `c5a2d77` 的 Mac native 等于 `6e7db27`、
 Windows native 等于 `e346d22`、src 公共/MCP 等于已审 `74584d4`。这些范围之外不外推。
-本轮 native/src 不变，只改下述构建/测试/文档；新 CI 及 Windows 桌面等限制仍保留。
+上层也已审查 Windows EOL/source identity 与 MCP reaper 测试同步修正，无新增问题；
+`f1e867e` 的生产 native/src/`.github/workflows` 与已审 `c5a2d77` 一致。
 
-## 最新 Windows CI、fixture 字节身份与 MCP 测试同步
+本次收尾**只更新本文档**；最终文档提交是 CI 所测 `f1e867e` 的直接子提交，
+runtime、tests、workflows 及其他文件均与该父版本一致，以 Git 完整差异核对。
+CI 测试的是代码父版本，没有为文档再 dispatch，也没有重跑未变化的 Mac 检查。
+
+## 最终 Windows CI
+
+[CI 40488149692](https://github.com/czf0613/computer_use_py/actions/runs/40488149692)
+的准确 headSHA 为 `f1e867e793a49940357f8cb2bc59900d4eb8571b`。
+上层下载最终 metadata 和完整日志逐项核对；本次收尾再次查询 metadata，确认
+run 为 completed/success、下列六项 job 均为 completed/success：
+
+| 平台 / Python | Job ID | 原生离线测试 | fixture 协议/源码身份 | MCP fake 设备测试 |
+| --- | --- | --- | --- | --- |
+| Windows x64 / 3.10 | `122135039557` | 190 passed | 9 passed | 93 passed, 1 skipped, 1 warning |
+| Windows x64 / 3.14 | `122135039118` | 190 passed | 9 passed | 93 passed, 1 skipped, 1 warning |
+| Windows x64 / 3.13t | `122135039305` | 190 passed | 9 passed | 按既有可选依赖限制未启用 |
+| Windows x64 / 3.14t | `122135039364` | 190 passed | 9 passed | 按既有可选依赖限制未启用 |
+| Windows ARM64 / 3.14 | `122135039561` | 190 passed | 9 passed | 按既有可选依赖限制未启用 |
+| Windows ARM64 / 3.14t | `122135039669` | 190 passed | 9 passed | 按既有可选依赖限制未启用 |
+
+六项 production wheel 构建均成功；三个 free-threaded job 均记录
+`gil_enabled_after_tests=False`。原生测试包含 queued/hung 回归。
+两项 MCP 的 skip 均为既有 POSIX 进程组 cleanup 测试；warning 为 AnyIO assertion
+rewrite，未跳过失败用例或削弱 GIL 断言。
+
+六项 fixture 构建及六项 fixture 测试均主动输出相同的实际源码/native pin 校验结果：
+
+```text
+Verified Windows fixture source/pin sha256 3bc6c190c861369f7ae2e6f73ef3861766aa563c52bac0031cda6a5082d20251
+```
+
+最终 Windows checkout 未发生 CRLF 身份错配。该结果确认构建前校验和离线协议覆盖，
+不证明真实窗口已被识别或 UIA/WGC 桌面操作通过。macOS/Windows 的真实桌面及生产
+profile 边界不因 CI 通过而扩大。
+
+## 历史 Windows CI 失败、fixture 字节身份与 MCP 测试同步
 
 [CI 40486344125](https://github.com/czf0613/computer_use_py/actions/runs/40486344125)
 测试 `c5a2d771a4d4b42916a0a5eb5c0bb93acaf2f1bd`，本轮读取完整 job 状态，最终为
@@ -74,8 +117,8 @@ header 的唯一 pin 做严格比较，错误就终止，成功主动输出
 `c5a2d77` 复现 `0d26e72...`，再加入唯一 attributes 规则后实际 checkout 为 LF，
 hash 精确等于 `3bc6c190...`；`git check-attr` 返回 `text: set`、`eol: lf`。
 新 source identity 测试 `2 passed in 0.01s`；首次 Ruff 发现 import 排序，修正后
-`All checks passed!`。这些是本机字节/规则验证，本机无 PowerShell/MSVC，不能冒充
-新 Windows build guard 或真实窗口识别已执行。
+`All checks passed!`。这些是本机字节/规则验证，本机无 PowerShell/MSVC；后续实际
+Windows build guard 已由上述最终 CI 执行，仍不等于真实窗口识别验证。
 
 x64 3.10 [job 122128969360](https://github.com/czf0613/computer_use_py/actions/runs/40486344125/job/122128969360)
 的 MCP 原始结果是 `1 failed, 92 passed, 1 skipped, 1 warning in 13.17s`，exit 1，
@@ -93,9 +136,10 @@ cleanup_complete。闲置回收、取消关闭及所有 incomplete cleanup 配�
 `14 passed, 45 deselected, 1 warning in 0.67s`；后者同进程导入/pytest 前后 GIL 关闭，
 两者 checkout 导入和空生产信任表检查通过。未重跑 Mac 桌面或原生整套矩阵。
 
-本轮将两项修正一起发布后只 dispatch 一次新的 `windows.yml`，准确 run ID/URL/head
-SHA 在 Provider 回执中；新 Windows 结果返回前保持 needs_input/published。历史成功
-与失败分别保留，CI 绿色也不能替代 Windows UIA/WGC 桌面或后台非干扰验收。
+两项修正一起发布为 `f1e867e` 后只 dispatch 一次 `windows.yml`，即上述最终
+`40488149692`。等待期间的回执为 needs_input/published；现已收到完整成功结果，
+完成文档交付。历史成功与失败分别保留，CI 绿色也不能替代 Windows UIA/WGC 桌面
+或后台非干扰验收。
 
 ## 固定输入与合并
 
@@ -124,8 +168,8 @@ build 和 189 tests 已通过，MCP/production 后续未运行。本轮读取失
 `UIAutomationCore.h(49): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int`；
 六项均记录 `Process completed with exit code 1.`。这不是矩阵全通过，不能以 Mac MCP
 结果代替未运行的 Windows MCP。后续准确 Windows 修复 `e346d22` 已合入，上一阶段
-发布并 dispatch 的结果为上述 `40486344125`。本轮仅为两个新发现修正再 dispatch
-一次完整集成 Windows CI，不触发 macOS/release，不长时间 watch。
+发布并 dispatch 的结果为上述 `40486344125`。两个新发现修正后的完整集成 CI
+为 `40488149692`，结果见前文；文档收尾不重复 dispatch，不触发 macOS/release。
 
 ## Python / MCP 入口与边界
 
@@ -316,7 +360,8 @@ fixture `/FI` 参数现为生成 header 的绝对路径。本机没有 Windows �
 actor。只有已经 running 且超出完成预算的请求沿用永久 quarantine。新增 synthetic
 场景让 50ms screenshot/Invoke 排在健康长截图后，断言旧请求不迟到执行，之后截图和
 Invoke 仍可用；原正常 no-frame 和两种 hung 覆盖均保留。Windows Agent 的 portable
-production Actor probe 通过仅是其 handoff 证据，集成后的 Windows extension 执行待 CI。
+production Actor probe 通过仅是其 handoff 证据；最终集成 Windows extension 的离线
+queued/hung 测试已在 `40488149692` 六项 job 执行通过，仍不是桌面验收。
 fixture 在 UIAutomation.h 前显式加入 ole2.h，并同步 source pin；setup.py 的 native
 build hash 包含该 pin header。生产信任表没有更新，没有新的 unsafe/全局输入路径。
 上层已转交 Windows reviewer 对 `e346d22` 的定向复核完成结果，范围见本文开头。
@@ -328,7 +373,7 @@ Python 3.10/3.14t 的 AST/实际 `inspect.signature.bind` 检查通过，3.14t G
 没有调用 native capture。针对新文件的 Ruff 首次报告 subprocess.run 缺少显式
 `check`，现补 `check=False`，保留对子进程 returncode/stdout/stderr 的原断言。
 重新检查通过。上一阶段 macOS native/公共 API/MCP 实现与已测 `5cc6466` 完全一致，
-故当时未重复 macOS 检查。本轮因 macOS native 确有新变更，只重建/验证相关路径和
+故当时未重复 macOS 检查。随后合入 macOS native 修复时，只重建/验证相关路径和
 一次自有 fixture，没有扩展到无关全部平台矩阵；没有 dispatch macOS/release。
 
 上层的独立 macOS review 针对 `b6a0206` 离线复现了三项生产路径问题：
@@ -339,13 +384,15 @@ Python 3.10/3.14t 的 AST/实际 `inspect.signature.bind` 检查通过，3.14t G
 空叶/显式截断仍允许；返回 nodes、保留对象及 fingerprint 来自同一次观察，再做
 一次校验，发现变化就拒绝，不自动重试。新检查与上层独立复核见本文开头；旧通过
 不覆盖这些历史失败，修复后的通过也不改写旧失败。上层已转交公共接口/MCP/Windows
-定向 review 和集成一致性结果；新增 EOL/测试同步修正的 Windows 执行结果仍待 CI。
+定向 review 和集成一致性结果；新增 EOL/测试同步修正也经上层审查，并由最终
+Windows CI 验证通过。文档收尾未改变这些已审、已测的代码。
 
 更早 BSTR 编译失败及其修正保留在 [Windows handoff](window-windows-handoff.md)，
 不能用旧失败覆盖未来确实通过的最终结果，也不能提前宣称通过。
 
 下列均 **not_run / 未具备证据**：Windows 桌面 UIA/WGC、
 连续人类键鼠/修饰键非干扰、真实剪贴板哨兵、跨 DPI 设备、macOS 13/Intel、Windows
-10/ARM64 桌面、任意第三方应用后台控制、生产 profile 审核，以及指定最终 SHA 的
-独立 inspection worktree 验收。没有运行全套旧桌面 tests，没有操作用户应用、读取
-真实剪贴板或申请 OS 权限。fixture/合成证据分别记录，不自动上升为生产信任。
+10/ARM64 桌面、任意第三方应用后台控制、生产 profile 审核。独立复核针对前文所列
+固定代码提交及集成源代码等价范围，不将最终文档提交另称为新的独立桌面验收。
+没有运行全套旧桌面 tests，没有操作用户应用、读取真实剪贴板或申请 OS 权限。
+fixture/合成证据分别记录，不自动上升为生产信任。
