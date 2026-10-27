@@ -273,7 +273,7 @@ lifespan，FastAPI 不会自动执行被挂载子应用的启动/关闭逻辑。
 ## 开发验证
 
 ```sh
-uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py
+uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py tests/test_mcp_windows.py
 ```
 
 测试使用 fake 设备和本地临时 shell profile，不截图、不移动鼠标、不操作真实剪贴板。
@@ -285,3 +285,71 @@ uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py
 [MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、
 [SDK 工具 schema](https://py.sdk.modelcontextprotocol.io/servers/tools/)、
 [CFFI free-threading 支持](https://cffi.readthedocs.io/en/stable/whatsnew.html)。
+
+## 显式窗口工具与客户端归属
+
+本分支完成冻结 Python window API 的 MCP 适配和 **fake 协议测试**，尚未接入
+macOS/Windows 原生 `WINDOW_BACKEND_ABI`，窗口请求真实返回 `backend_unavailable`。
+生产 profile 的验收证据白名单为空；未验证动作返回 `background_not_verified`。
+这不改变旧整屏工具的全局输入、截图、剪贴板和录制语义；窗口失败不能引导 agent
+调用旧 `click/type_text` 等绕过后台策略。截图成功也不代表后台操作已验证。
+
+默认 HTTP 无状态，全部窗口工具返回结构化 `unsupported_transport`。stdio 支持
+SDK 2.2 的握手和 `2026-07-28` 协议；HTTP 窗口使用有状态服务与握手客户端：
+
+```sh
+scapkit-mcp --stateful-http --host 127.0.0.1 --port 8000
+```
+
+嵌入时使用 `create_app(stateless_http=False)`；官方 SDK 客户端明确设置
+`Client(streamable_http_client(url), mode="legacy")`。SDK 2.2 的 HTTP
+`2026-07-28` 路径始终按单次交换运行，即使开启 stateful 也拒绝窗口工具。
+`--stateful-http` 不改变 Host/Origin/Bearer 校验及单 worker 限制。
+
+| 工具 | 显式参数与结果 |
+| --- | --- |
+| `window_list` / `window_open` | 可选 PID → 候选 `ref_token`；消费该 token → `session_token`，仅打开截图根 |
+| `accessible_window_list` / `accessible_window_open` | 必填 PID → 独立语义根；ref token + 可选已有 `profile_id` → control-only session，无截图能力 |
+| `window_attach_accessibility` | session token、语义 ref token、profile ID；Python 验证桥接，不按标题/PID 自动配对 |
+| `window_capabilities` | session token → API support、identity、background validation 分别报告 |
+| `window_screenshot` | session token、quality 0..100、timeout_seconds (0,30] → JPEG + 实际像素和完整局部仿射 metadata |
+| `window_elements` | session token、max_depth 0..32、max_nodes 1..4096 → 无 value 的树、snapshot ID、element tokens |
+| `window_element_at` | session token、snapshot ID、x/y；附 frame ID 时解释为原截图像素，否则明确为 root-local 单位；只查找不点击 |
+| `window_set_value` / `window_invoke` | session token、element token；前者语义替换完整 value，后者调用精确验收动作，均无键盘/鼠标/剪贴板回退 |
+| `window_status` | session token → `last_action`、busy、closed、cleanup_complete，取消后可恢复操作编号，无 native 调用 |
+| `window_close` | session token → 排除新操作并等待已接收操作收尾；明确报告 cleanup_complete |
+
+截图 `image_width/image_height` 是真实图片像素；`image_to_local=(a,b,c,d,tx,ty)`
+表示 `x=a*ix+c*iy+tx, y=b*ix+d*iy+ty`。只有 `image_content_rect_px` 内的像素可映射。
+`local_rect/client_rect_local` 使用局部 macOS points / Windows pixels；
+`window_bounds` 为观察用全局边界。不可套用旧 display origin、`points_per_pixel_*`
+或 Windows UI scale。服务端保留最新 frame 的无图片数据副本，以 `frame_id` 保留
+来源并通过 `frame.to_local()` 做新鲜度校验；不能用调用方自报的几何来源替代。
+control-only 目标返回 `capture_unavailable`，不伪造截图根。
+
+所有错误以 `CallToolResult(isError=True)` 返回，text 中 JSON 与
+`structuredContent` 一致，至少包含 code、operation_id、dispatch_state、retry_hint。
+参数错误为 `invalid_arguments`，不会回显输入 value。`unknown` 可能已经生效，
+不能重试或换 session 重试；取消不是未提交证明。`window_status` 不是效果验证，
+busy 时不能据 `last_action` 发起重试。允许选择已有 profile ID，不提供 profile 注册、
+证据上传、自动验收或 unsafe 开关，也不自动授权第三方应用。
+
+归属来自 SDK 可信连接对象，而非用户传入 client ID/header：SDK 2.2 的
+`ServerSession` 每请求新建，适配器通过受检查的 `_connection` / `_request_outbound`
+兼容点获取连接和 transport；有状态 HTTP 把 owner 存入 Connection.state 并注册
+exit_stack 清理。stdio/进程内测试连接使用独立 lifespan owner，支持现代协议每请求
+新 Connection 的实际行为。未知 SDK/transport 结构拒绝操作。升级 SDK 时必须重新
+执行生命周期测试，不能把请求对象当会话身份。
+
+每 client 最多 256 refs / 8 sessions，服务最多 32 window clients / 64 sessions；
+配额包括 pending open 与 cleanup 不完整的会话。refs 一次性且 60 秒到期，元素/
+frame mapping 30 秒到期，session 闲置 300 秒到期，5 秒定期清理，无需下一次请求。
+重复 close 在条目尚存时幂等；已成功关闭的条目可在新 open 时逐出，因此先保存回执。
+更新树会使旧元素 token 失效，任何 token 都不能跨 client/window 使用。
+同窗口并发操作拒绝为 `backend_busy`，close 等待，status 可读；跨窗口序列不原子。
+
+stdio EOF、有状态 HTTP DELETE/SDK 会话超时和服务正常关闭会清理资源。
+HTTP 单个请求/SSE 连接中断并非会话结束，仍由显式 close、闲置清理、DELETE 或 shutdown
+回收。观察到目标进程身份失效时关闭对应窗口句柄；未观察到时由 native revalidation 和
+闲置清理约束留存。强制杀进程不保证优雅清理。错误、token、标题、value 不写入适配器
+普通日志；安全与兼容边界见打包的 [agent guide](../src/scapkit_computer_use_mcp/agent_guide.md)。

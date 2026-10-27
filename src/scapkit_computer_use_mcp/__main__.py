@@ -15,6 +15,11 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
+        "--stateful-http",
+        action="store_true",
+        help="Enable SDK HTTP sessions for window tools; clients must use a handshake protocol",
+    )
+    parser.add_argument(
         "--token-env",
         default="SCAPKIT_MCP_TOKEN",
         help="Environment variable holding the bearer token; the token is never passed on the command line",
@@ -64,6 +69,7 @@ def main(argv=None):
             host = f"[{args.host}]" if ":" in args.host else args.host
             hosts.extend([host, f"{host}:*"])
         app = create_app(
+            stateless_http=not args.stateful_http,
             token=token,
             allowed_hosts=hosts,
             allowed_origins=args.allowed_origin or None,

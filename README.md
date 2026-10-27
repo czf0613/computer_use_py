@@ -56,6 +56,23 @@ macOS 逻辑坐标、Windows 物理坐标、截图像素换算及操作后的验
 详见 [MCP 安装、客户端配置与工具说明](docs/mcp-server.md) 和
 [agent 操作指南](src/scapkit_computer_use_mcp/agent_guide.md)。
 
+### 显式窗口 MCP（原生待接入）
+
+新增 `window_list/open/capabilities/screenshot/elements/element_at/set_value/invoke/close`、
+`accessible_window_list/open`、`window_attach_accessibility` 与只读 `window_status`。
+每次明确传入客户端拥有的 session/element token；独立语义根不伪装成截图目标。
+截图返回真实像素尺寸与 root-local 仿射 metadata；语义替换/invoke 不等同坐标点击。
+
+当前冻结接口分支尚无原生 `WINDOW_BACKEND_ABI`，真实窗口操作返回
+`backend_unavailable`；生产 profile 无验收配置，未验证动作 `background_not_verified`。
+fake 协议测试不是桌面验收。只允许选择已有 profile ID，无 unsafe 或用户证据启用开关。
+窗口失败不能切到旧全局工具绕过策略；原整屏工具保持原有语义。
+
+stdio 支持窗口会话；HTTP 默认无状态并拒绝窗口工具，可用 `--stateful-http` 配合
+握手客户端（SDK `mode="legacy"`）。SDK 2.2 的现代 HTTP 单次交换仍拒绝窗口会话。
+refs/元素/会话有数量上限与过期清理，连接结束时回收；`unknown` 不可自动重试，
+取消后用 `window_status` 查询 last_action。完整约束见 [窗口 MCP 说明](docs/mcp-server.md#显式窗口工具与客户端归属)。
+
 ## 权限
 
 macOS 下需要授予以下系统权限：

@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 
 from .commands import run_command
 from .device import Device
+from .windows import WindowTools
 
 Coordinate = Annotated[
     int,
@@ -56,11 +57,13 @@ def package_version() -> str:
 
 def create_server(*, device: Device | None = None) -> MCPServer:
     device = Device() if device is None else device
+    windows = WindowTools()
 
     @asynccontextmanager
     async def device_lifespan(server):
         try:
-            yield
+            async with windows.lifespan() as state:
+                yield state
         finally:
             await device.aclose()
 
@@ -69,8 +72,9 @@ def create_server(*, device: Device | None = None) -> MCPServer:
         version=package_version(),
         title="Computer Use",
         instructions=agent_guide(),
-        description="Observe, record and control the host computer with screen/system-audio recording, screenshots, mouse, keyboard, clipboard, and subprocess tools.",
+        description="Observe, record and control the host computer with desktop and subprocess tools. Explicit client-owned window tools use a separate backend and verified profiles; screenshot success does not authorize background control. No global fallback for window failures.",
         lifespan=device_lifespan,
+        middleware=[windows.middleware],
     )
 
     def tool(*, read_only=False):
@@ -150,6 +154,8 @@ def create_server(*, device: Device | None = None) -> MCPServer:
 
     if device.system not in {"Darwin", "Windows"}:
         return server
+
+    windows.register(server)
 
     @tool()
     async def start_recording(
@@ -314,6 +320,7 @@ def create_app(
     token: str | None = None,
     allowed_hosts: list[str] | None = None,
     allowed_origins: list[str] | None = None,
+    stateless_http: bool = True,
 ) -> FastAPI:
     """Create a single-device FastAPI host with Streamable HTTP at /mcp.
 
@@ -325,7 +332,7 @@ def create_app(
     server = create_server(device=device)
     transport = server.streamable_http_app(
         json_response=True,
-        stateless_http=True,
+        stateless_http=stateless_http,
         transport_security=TransportSecuritySettings(
             allowed_hosts=LOCAL_HOSTS if allowed_hosts is None else allowed_hosts,
             allowed_origins=LOCAL_ORIGINS

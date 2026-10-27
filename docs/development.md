@@ -46,7 +46,7 @@ uv run pytest tests/test_recording.py tests/test_recording_integration.py tests/
 它编译实际 C 事件构造代码并截留 post/warp，不操作桌面；真实系统状态和窗口焦点
 的验收需要另行准备测试环境。参见 [修饰键生命周期](modifier-lifecycle.md)。
 
-可选 MCP 模块通过 `uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py` 验证。
+可选 MCP 模块通过 `uv run --extra mcp pytest tests/test_mcp_server.py tests/test_mcp_recording.py tests/test_mcp_windows.py` 验证。
 使用 fake 设备测试协议与操作逻辑，不访问真实桌面。安装和 agent 配置见
 [MCP server](mcp-server.md)。
 
@@ -121,3 +121,67 @@ free-threaded Python。
 
 参考：[CPython free-threaded C API 指南](https://docs.python.org/3.14/howto/free-threading-extensions.html)、
 [Apple ScreenCaptureKit 示例](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)。
+
+## 窗口 MCP 适配验证（2026-10-27）
+
+固定公共接口输入为 `01b318287d40d9124ae2708eaa3f1fcc6821cbbc`，方案版本为
+`18304c2b16f562c50e0434b7d41d53fc6ac944a3`；未合并 fixture/native 分支。
+本次只修改 MCP 适配、指南、相关文档及离线测试。生产 native 窗口 ABI 尚未接入，
+`backend_unavailable` 是真实边界；生产 profile 证据 allowlist 为空，未验证动作
+`background_not_verified`。原整屏工具保持原语义，不作为窗口失败回退。
+
+`tests/test_mcp_windows.py` 使用原有 `window_fakes` 的 native DTO 假后端，调用
+冻结的真实 Python API，再经过真实 MCP SDK 协议、registry、connection exit stack
+和 lifespan；不直接构造 Python opaque refs，亦不凭字符串重建它们。测试专用 profile pin
+通过 monkeypatch 注入并恢复，不是可交付的生产验收配置。stdio 子进程 helper 也只
+加载 fake backend，退出时把资源计数写入临时目录。所有测试不截屏、不输入、不改
+系统剪贴板、不请求 OS 权限；旧 MCP 回归使用 fake device 和临时 shell profiles。
+
+验证涵盖双 client/双窗口 token 隔离、一次性候选、严格参数类型与范围、配额含 pending
+open、候选/树/帧/session 到期、后台 reaper、stdio 双协议 EOF、HTTP DELETE 与闲置
+session 回收、现代/无状态 HTTP 拒绝、截图像素及局部映射、control-only 拒绝截图、
+未知结果不重试、last_action 查询、open/attach/screenshot/action/close 取消收尾、
+close 竞态与清理失败、目标进程身份失效关闭、日志不输出窗口 token/标题/value。
+HTTP 的活动 SSE GET 不算闲置；断开单条请求不等于结束客户端 session。
+
+沿用锁定的 `[mcp]` extra（本次解析为 MCP 2.2.0），未修改依赖、native/setup、CI 或
+发布 workflow。包安装通过 `uv sync` 调用 setuptools，不使用 CMake。复现命令：
+
+```sh
+env -u PYTHONHOME -u PYTHONPATH uv sync --frozen --extra mcp --python 3.10
+env -u PYTHONHOME -u PYTHONPATH uv run --frozen --extra mcp --python 3.10 python -I tests/mcp_window_checks.py
+env -u PYTHONHOME -u PYTHONPATH UV_PROJECT_ENVIRONMENT=.cache/window-mcp-314t uv sync --frozen --extra mcp --python 3.14t
+env -u PYTHONHOME -u PYTHONPATH UV_PROJECT_ENVIRONMENT=.cache/window-mcp-314t uv run --frozen --extra mcp --python 3.14t python -I tests/mcp_window_checks.py --free-threaded
+```
+
+runner 检查 `PYTHONHOME/PYTHONPATH` 已移除、`-I` 已启用、package/window/MCP/extension
+确实来自本 checkout，且真实 extension 未声明窗口 ABI。3.14t 在同一进程的任何包导入
+之前、MCP/native/pytest 导入之后、pytest 执行之后检查 GIL 未开启；不设置强制关闭
+GIL 的环境变量来掩盖不兼容扩展。3.13t 的 MCP 仍不支持，未改变其基础库边界。
+
+开发过程中的真实失败保留如下，不能当作通过：首次导入使用了错误的
+`mcp.server.Context` 导出位置，修正为 `mcp.server.mcpserver.Context`；一次 SDK 探测
+传入了不支持的 `mode="modern"`，实际应使用 `"2026-07-28"`。首轮窗口测试
+`1 failed, 37 passed` 揭示现代进程内 transport 为 `direct`，已依据其独立 lifespan
+接入；随后 lint 发现异常处理/格式问题并已修正。扩展后的闲置测试
+`1 failed, 83 passed` 因仍保留活动 SSE GET，错误地期待 SDK 判为闲置；已改为断开
+请求且不发送 DELETE 的真实孤立 session 场景，单测观察到 `1 passed in 0.38s`。
+这几次失败均为本次实现/测试自检，没有改写为原始运行通过。pytest 的 AnyIO
+assertion-rewrite 提示来自同进程预先导入检查，不是 GIL 开启或测试失败。
+
+原生窗口后端、真实桌面后台控制/非干扰、macOS 旧版本/Intel、Windows 10/11/ARM64
+窗口运行、生产 profile 验收、独立验收 Agent：**not_run / 未在本任务实现**。
+本次只提供 MCP fake 协议验证，不将其表述为上述平台验收。
+
+最终本地自检（不是独立验收）：
+
+| 检查 | 实际结果 |
+| --- | --- |
+| Python 3.10.20，三个 MCP 测试文件 | `84 passed, 1 warning in 5.00s`，isolated=1，checkout imports verified |
+| Python 3.14.6 free-threaded，同样三个文件 | `84 passed, 1 warning in 4.71s`，导入前、pytest 前后 `gil_enabled=False` |
+| Ruff，全部新增 Python 文件及改动的 MCP server/CLI | `All checks passed!` |
+| 真实 extension ABI 检查 | `native_window_backend=unavailable`，符合未接入状态 |
+
+所有上述命令的环境调整仅限命令本身，未改全局 Python/Git/用户配置。
+生成环境、扩展、build 输出及临时测试回执不提交。交付仅限
+`refs/heads/codex/provider-window-mcp-20261027`，无默认分支合并、release 或部署。
