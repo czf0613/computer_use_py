@@ -6,8 +6,178 @@ Windows coordinates are virtual-desktop physical pixels; macOS uses points.
 Windows key codes are VK values and flags come from the platform keys module.
 """
 
-from typing import Literal
+from typing import Literal, TypedDict
 from .types import CaptureHandle, RecordingHandle, BGRAPack, Point2D, DisplayInfo
+
+# Window ABI 1 is independent of the legacy desktop API. Until all seven
+# entries are implemented, omit WINDOW_BACKEND_ABI and report unavailable.
+# Full threading, ownership, validation and failure rules:
+# docs/window-backend-contract.md. All arguments below are positional-only.
+WINDOW_BACKEND_ABI: Literal[1]
+
+class NativeWindowRect(TypedDict):
+    x: float
+    y: float
+    width: float
+    height: float
+
+class NativeWindowIdentity(TypedDict):
+    generation: int
+    process_instance: str
+
+class NativeWindowInfo(NativeWindowIdentity):
+    ref: object  # PyCapsule: scapkit.window_ref.v1 / scapkit.accessible_window_ref.v1
+    platform: Literal["macos", "windows"]
+    native_id: str  # Diagnostic only; never accepted as a selector.
+    pid: int
+    title: str | None
+    bounds: NativeWindowRect
+    coordinate_unit: Literal["points", "pixels"]
+    visible: bool | None
+    minimized: bool | None
+    capture_support: Literal["supported", "unsupported", "unknown"]
+    inspect_support: Literal["supported", "unsupported", "unknown"]
+
+class NativeWindowSession(NativeWindowIdentity):
+    handle: object  # PyCapsule: scapkit.window_session.v1
+
+class NativeWindowSubject(TypedDict):
+    platform: Literal["macos", "windows"]
+    application_id: str
+    application_version: str
+    application_build: str
+    environment: str
+    backend_build: str
+    window_identifier: str
+
+class NativeWindowProfileAction(TypedDict):
+    identifier: str
+    role: str
+    action: Literal["set_value", "invoke"]
+
+class NativeWindowProfile(NativeWindowSubject):
+    profile_id: str
+    actions: list[NativeWindowProfileAction]
+
+class NativeWindowAuthorization(TypedDict):
+    profile: NativeWindowProfile
+    evidence_sha256: str
+
+class NativeWindowContext(NativeWindowIdentity):
+    geometry_revision: int
+    identity_status: Literal["verified", "unverified", "stale"]
+    capture: Literal["supported", "unsupported", "unknown"]
+    inspect_elements: Literal["supported", "unsupported", "unknown"]
+    set_value: Literal["supported", "unsupported", "unknown"]
+    invoke: Literal["supported", "unsupported", "unknown"]
+    minimized: bool | None
+    modal: bool | None
+    focus_policy: Literal["no_activation", "unverified"]
+    subject: NativeWindowSubject | None
+
+class NativeWindowElement(TypedDict):
+    ref: object  # PyCapsule: scapkit.window_element.v1
+    identifier: str | None
+    role: str
+    name: str | None
+    bounds: NativeWindowRect | None
+    enabled: bool | None
+    editable: bool | None
+    password: bool | None
+    actions: list[Literal["set_value", "invoke"]]
+    depth: int
+    parent_index: int | None
+
+class NativeWindowSnapshot(NativeWindowIdentity):
+    geometry_revision: int
+    tree_epoch: int
+    coordinate_unit: Literal["points", "pixels"]
+    mapping_status: Literal["verified", "unavailable"]
+    elements: list[NativeWindowElement]
+
+class NativeWindowFrame(NativeWindowIdentity):
+    frame_id: str
+    geometry_revision: int
+    captured_at: float
+    state: Literal["complete"]
+    format: Literal["jpeg", "bgra"]
+    data: bytes
+    image_width: int
+    image_height: int
+    stride: int | None
+    window_bounds: NativeWindowRect
+    local_rect: NativeWindowRect | None
+    image_content_rect_px: NativeWindowRect | None
+    client_rect_local: NativeWindowRect | None
+    coordinate_unit: Literal["points", "pixels"]
+    image_to_local: tuple[float, float, float, float, float, float] | None
+    mapping_status: Literal["verified", "unavailable"]
+
+class NativeWindowActionReceipt(TypedDict):
+    operation_id: str
+    dispatch_state: Literal["not_dispatched", "accepted", "unknown"]
+    effect_state: Literal["verified", "unknown"]
+
+class NativeWindowError(TypedDict):
+    code: str  # Exactly a code from window_errors.ERROR_CODES.
+    native_domain: str | None
+    native_code: int | str | None
+    dispatch_state: Literal["not_dispatched", "accepted", "unknown"]
+    retry_hint: Literal["never", "refresh", "after_permission", "after_close"]
+
+class NativeWindowFailure(TypedDict):
+    ok: Literal[False]
+    error: NativeWindowError
+
+class NativeWindowSuccess(TypedDict):
+    ok: Literal[True]
+    value: (None | list[NativeWindowInfo] | NativeWindowSession | NativeWindowContext
+            | NativeWindowSnapshot | NativeWindowFrame | NativeWindowActionReceipt)
+
+def _window_enumerate(
+    kind: Literal["capture", "accessible"], pid: int | None, limit: int, /,
+) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return list[NativeWindowInfo]. Retain original native objects, never raw IDs."""
+    ...
+
+def _window_open(ref: object, kind: Literal["capture", "accessible"], /) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return NativeWindowSession; consumes a reference once, verifies its incarnation."""
+    ...
+
+def _window_close(handle: object, /) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return None after cleanup. Idempotent; incomplete cleanup is a structured failure."""
+    ...
+
+def _window_attach(handle: object, accessible_ref: object, /) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return None after an atomic, verified root attachment. Failure leaves it unbound."""
+    ...
+
+def _window_screenshot(
+    handle: object, format: Literal["jpeg", "bgra"], quality: int, timeout_seconds: float, /,
+) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return NativeWindowFrame. Own and close this call's capture stream on every path."""
+    ...
+
+def _window_inspect(
+    handle: object, query: Literal["capabilities", "elements", "validate_snapshot"],
+    options: dict[str, int], /,
+) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return NativeWindowContext / NativeWindowSnapshot / None, respectively."""
+    ...
+
+def _window_action(
+    handle: object, element: object, tree_epoch: int, geometry_revision: int,
+    action: Literal["set_value", "invoke"], value: str | None,
+    authorization: NativeWindowAuthorization, operation_id: str, timeout_seconds: float, /,
+) -> NativeWindowSuccess | NativeWindowFailure:
+    """Return NativeWindowActionReceipt. Validate the registry grant before native dispatch.
+
+    Call window_profiles._validate_authorization on this Python entry thread,
+    with attached thread state and no native locks. Copy its returned scope to
+    native-only storage, then recheck live identity, exact scope, control and
+    preconditions on the owning actor. No callback or actor may access Python.
+    """
+    ...
 
 def _drag_mouse(x: int, y: int) -> None:
     """Internal: post left-button drag motion to an absolute point with deltas.

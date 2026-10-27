@@ -5,6 +5,20 @@ import platform
 from asyncio import subprocess
 
 if TYPE_CHECKING:
+    from .window import (
+        list_windows, open_window, list_accessible_windows, open_accessible_window,
+        WindowSession, AccessibleWindowSession,
+    )
+    from .window_types import (
+        WindowRef, AccessibleWindowRef, ElementRef, WindowInfo, AccessibleWindowInfo,
+        WindowRect, WindowPoint, WindowFrame, ElementInfo, ElementSnapshot,
+        WindowCapability, WindowCapabilities, ActionReceipt,
+    )
+    from .window_errors import WindowError, WindowPermissionError, WindowTimeoutError
+    from .window_profiles import (
+        BackgroundProfile, ProfileAction, ProfileValidation,
+        register_profile, verify_profile, profile_validation,
+    )
     from .recording import RecordingHandle, RecordingResult
     from .screen_capture_kit import (
         move_mouse,
@@ -75,8 +89,23 @@ _RECORDING_EXPORTS = frozenset(
 if platform.system() not in {"Darwin", "Windows"}:
     __all__ = [name for name in __all__ if name not in _DESKTOP_EXPORTS]
 
+_WINDOW_EXPORTS = {
+    **dict.fromkeys(("list_windows", "open_window", "list_accessible_windows",
+                     "open_accessible_window", "WindowSession", "AccessibleWindowSession"), ".window"),
+    **dict.fromkeys(("WindowRef", "AccessibleWindowRef", "ElementRef", "WindowInfo",
+                     "AccessibleWindowInfo", "WindowRect", "WindowPoint", "WindowFrame",
+                     "ElementInfo", "ElementSnapshot", "WindowCapability",
+                     "WindowCapabilities", "ActionReceipt"), ".window_types"),
+    **dict.fromkeys(("WindowError", "WindowPermissionError", "WindowTimeoutError"), ".window_errors"),
+    **dict.fromkeys(("BackgroundProfile", "ProfileAction", "ProfileValidation",
+                     "register_profile", "verify_profile", "profile_validation"), ".window_profiles"),
+}
+__all__ += list(_WINDOW_EXPORTS)
+
 
 def __getattr__(name: str):
+    if name in _WINDOW_EXPORTS:
+        return getattr(import_module(_WINDOW_EXPORTS[name], __name__), name)
     # Subprocess execution is pure Python and does not need the desktop extension.
     if name in _DESKTOP_EXPORTS:
         if platform.system() not in {"Darwin", "Windows"}:
